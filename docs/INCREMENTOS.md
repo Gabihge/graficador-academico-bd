@@ -31,7 +31,11 @@ tool rail, explorer funcional, inspector vacio, canvas de React Flow
 montado (sin nodos editables todavia).
 
 **Gate:** crear un proyecto, crear un documento DER vacio, cerrar la app y
-reabrirlo sin perder nada.
+reabrirlo sin perder nada. **CUMPLIDO** (2026-09-07): cubierto por el test
+de integracion `tests/integration/workspace-persistence.test.ts` ("conserva
+el proyecto y el documento DER tras cerrar y reabrir la app") y por el test
+de componente `tests/app.test.tsx`. `npm run check` y `npm run build`
+verdes desde instalacion limpia.
 
 ## Incremento 2 - DER basico (Chen)
 
