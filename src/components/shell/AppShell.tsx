@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useWorkspaceStore } from "@/state/workspaceStore";
 import { useDerEditorStore } from "@/state/derEditorStore";
+import { useMrStore } from "@/state/mrStore";
+import {
+  findExistingDerivedMr,
+  runTransformation,
+  type TransformationOutcome,
+} from "@/state/transformationController";
+import { isDerValid } from "@/features/validation";
+import { MrResultModal, RegenerateDialog } from "@/features/transformation";
 import { WorkspaceLanding } from "@/features/workspace/WorkspaceLanding";
 import { Explorer } from "@/features/workspace/Explorer";
 import { TooltipProvider } from "@/components/ui/Tooltip";
@@ -29,6 +37,13 @@ export function AppShell() {
   return <WorkspaceShell />;
 }
 
+interface RegenState {
+  sourceDocumentId: string;
+  existingMrDocumentId: string;
+  existingMrName: string;
+  hasManualChanges: boolean;
+}
+
 /**
  * Layout de trabajo: canvas a pantalla completa con el shell flotante
  * encima (header, tool rail, explorer, inspector). Todo el estado de esta
@@ -42,6 +57,8 @@ function WorkspaceShell() {
   const [activeTool, setActiveTool] = useState<ToolId>("select");
   const [editorMode, setEditorMode] = useState<EditorMode>("der");
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [transformResult, setTransformResult] = useState<TransformationOutcome | null>(null);
+  const [regen, setRegen] = useState<RegenState | null>(null);
 
   const activeDocument = useWorkspaceStore((s) =>
     s.documents.find((doc) => doc.id === s.activeDocumentId),
@@ -50,18 +67,26 @@ function WorkspaceShell() {
   const clearDer = useDerEditorStore((s) => s.clear);
   const undo = useDerEditorStore((s) => s.undo);
   const redo = useDerEditorStore((s) => s.redo);
+  const derModel = useDerEditorStore((s) => s.model);
+  const loadMr = useMrStore((s) => s.load);
+  const clearMr = useMrStore((s) => s.clear);
 
-  // Sincroniza el editor DER con el documento activo. El contenido semantico
-  // vive en su propio store + Dexie; aca solo se dispara la carga/descarga.
   const isDerDocument =
     activeDocument?.kind === "der" || activeDocument?.kind === "combined";
+  const isMrDocument =
+    activeDocument?.kind === "mr" || activeDocument?.kind === "combined";
+
+  // Sincroniza el editor DER con el documento activo.
   useEffect(() => {
-    if (activeDocument && isDerDocument) {
-      void loadDer(activeDocument.id);
-    } else {
-      clearDer();
-    }
+    if (activeDocument && isDerDocument) void loadDer(activeDocument.id);
+    else clearDer();
   }, [activeDocument, isDerDocument, loadDer, clearDer]);
+
+  // Sincroniza el visor de MR (solo lectura) con el documento activo.
+  useEffect(() => {
+    if (activeDocument && isMrDocument) void loadMr(activeDocument.id);
+    else clearMr();
+  }, [activeDocument, isMrDocument, loadMr, clearMr]);
 
   // Atajos de undo/redo del editor DER.
   useEffect(() => {
@@ -82,7 +107,6 @@ function WorkspaceShell() {
   }, [isDerDocument, undo, redo]);
 
   // El Inspector aparece al seleccionar un elemento del canvas (spec 11.5).
-  // Se suscribe al store externo (no es un setState sincrono en el efecto).
   useEffect(
     () =>
       useDerEditorStore.subscribe((state, prev) => {
@@ -95,6 +119,38 @@ function WorkspaceShell() {
     setInspectorOpen(true);
     setInspectorTab("validacion");
   }, []);
+
+  const canTransform =
+    Boolean(isDerDocument) && derModel.entities.length > 0 && isDerValid(derModel);
+
+  const transform = useCallback(
+    async (sourceDocumentId: string, mode: Parameters<typeof runTransformation>[1]) => {
+      const outcome = await runTransformation(sourceDocumentId, mode);
+      setRegen(null);
+      setTransformResult(outcome);
+    },
+    [],
+  );
+
+  const handleTransform = useCallback(async () => {
+    const sourceDocumentId = activeDocument?.id;
+    if (!sourceDocumentId) return;
+    const existing = await findExistingDerivedMr(sourceDocumentId);
+    const first = existing[0];
+    if (first) {
+      const doc = useWorkspaceStore
+        .getState()
+        .documents.find((d) => d.id === first.documentId);
+      setRegen({
+        sourceDocumentId,
+        existingMrDocumentId: first.documentId,
+        existingMrName: doc?.name ?? "MR derivado",
+        hasManualChanges: first.derivation?.hasManualChanges ?? false,
+      });
+      return;
+    }
+    await transform(sourceDocumentId, { kind: "new" });
+  }, [activeDocument, transform]);
 
   return (
     <TooltipProvider>
@@ -116,6 +172,8 @@ function WorkspaceShell() {
             onToggleInspector={() => setInspectorOpen((open) => !open)}
             derEditorActive={Boolean(isDerDocument)}
             onValidate={handleValidate}
+            canTransform={canTransform}
+            onTransform={() => void handleTransform()}
             onAbout={() => setAboutOpen(true)}
           />
           <ToolRail
@@ -135,6 +193,32 @@ function WorkspaceShell() {
         </div>
 
         <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
+
+        <RegenerateDialog
+          open={regen !== null}
+          existingMrName={regen?.existingMrName ?? ""}
+          hasManualChanges={regen?.hasManualChanges ?? false}
+          onCancel={() => setRegen(null)}
+          onCreateNew={() => {
+            if (regen) void transform(regen.sourceDocumentId, { kind: "new" });
+          }}
+          onReplace={() => {
+            if (regen) {
+              void transform(regen.sourceDocumentId, {
+                kind: "replace",
+                targetDocumentId: regen.existingMrDocumentId,
+              });
+            }
+          }}
+        />
+
+        <MrResultModal
+          open={transformResult !== null}
+          onClose={() => setTransformResult(null)}
+          documentName={transformResult?.documentName ?? ""}
+          model={transformResult?.relational ?? { schemas: [], notes: [], revision: 0 }}
+          trace={transformResult?.trace ?? { entries: [] }}
+        />
       </div>
     </TooltipProvider>
   );

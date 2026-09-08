@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect } from "vitest";
-import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { App } from "../src/app/App";
 import { db } from "../src/infrastructure/persistence/db";
 import { useWorkspaceStore } from "../src/state/workspaceStore";
@@ -12,6 +12,7 @@ beforeEach(async () => {
     db.documents.clear(),
     db.session.clear(),
     db.derDocuments.clear(),
+    db.mrDocuments.clear(),
   ]);
   useWorkspaceStore.setState({
     status: "loading",
@@ -87,9 +88,41 @@ describe("Editor DER (Incremento 3)", () => {
     expect(await screen.findByText(/ISA/)).toBeInTheDocument();
   });
 
-  it("no expone controles de incrementos futuros (transformar / exportar deshabilitados)", async () => {
+  it("Transformar esta deshabilitado con un DER invalido; Exportar sigue deshabilitado", async () => {
     await createProjectAndDerDocument();
+    // DER vacio -> invalido academicamente -> no se puede transformar.
     expect(screen.getByRole("button", { name: /Transformar/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /Exportar/i })).toBeDisabled();
+  });
+
+  it("con un DER academicamente valido, Transformar se habilita y abre el MR derivado", async () => {
+    await createProjectAndDerDocument();
+
+    act(() => {
+      const der = useDerEditorStore.getState();
+      const a = der.addEntity({ x: 0, y: 0 });
+      der.renameElement("entity", a, "Alumno");
+      der.setAttributeIdentifier(der.addAttributeTo("entity", a)!, true);
+      const b = der.addEntity({ x: 300, y: 0 });
+      der.renameElement("entity", b, "Materia");
+      der.setAttributeIdentifier(der.addAttributeTo("entity", b)!, true);
+      const rel = der.addRelationship({ x: 150, y: 150 });
+      der.renameElement("relationship", rel, "Cursa");
+      der.connect(rel, a);
+      der.connect(rel, b);
+      const parts = useDerEditorStore.getState().model.relationships[0]!.participants;
+      der.setParticipantCardinality(rel, parts[0]!.id, "N");
+      der.setParticipantCardinality(rel, parts[1]!.id, "N");
+    });
+
+    const transformBtn = await screen.findByRole("button", { name: /Transformar/i });
+    await waitFor(() => expect(transformBtn).toBeEnabled());
+    fireEvent.click(transformBtn);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/MR derivado \(automatico\)/i)).toBeInTheDocument();
+    expect(within(dialog).getByText("Cursa")).toBeInTheDocument();
+    // La trazabilidad cita la regla 7.4 (N:N).
+    expect(within(dialog).getByText(/Regla 7\.4/)).toBeInTheDocument();
   });
 });

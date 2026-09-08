@@ -5,14 +5,16 @@
 //
 // Esquema v1 (Incremento 1): solo el espacio de trabajo.
 // Esquema v2 (Incremento 2): agrega `derDocuments` con el ConceptualModel y
-// el ViewLayout de cada documento DER. Es un upgrade ADITIVO: no toca ni
-// migra las tablas de v1, asi que los datos del Incremento 1 sobreviven.
-// Layouts adicionales y preferencias se agregaran como versiones nuevas en
-// incrementos posteriores, con la misma politica.
+// el ViewLayout de cada documento DER.
+// Esquema v3 (Incremento 4): agrega `mrDocuments` con el RelationalModel
+// derivado + su trazabilidad. Todos los upgrades son ADITIVOS: no tocan ni
+// migran las tablas previas.
 
 import Dexie, { type Table } from "dexie";
 import type { DocumentEntry, Folder, ProjectMeta } from "@/domain/project";
 import type { ConceptualModel } from "@/domain/conceptual";
+import type { RelationalModel } from "@/domain/relational";
+import type { MrDerivation, TransformationTrace } from "@/domain/transformation";
 import type { ViewLayout } from "@/domain/view";
 
 /** Ultimo estado de sesion: que proyecto y documento reabrir al iniciar. */
@@ -37,12 +39,27 @@ export interface DerDocumentRecord {
   updatedAt: string;
 }
 
+/**
+ * Contenido semantico de un documento MR: el modelo relacional y, cuando es
+ * derivado de un DER, la metadata de derivacion (spec 10) y la trazabilidad.
+ * Se indexa por `documentId` (1:1 con `documents`).
+ */
+export interface MrDocumentRecord {
+  documentId: string;
+  model: RelationalModel;
+  derivation?: MrDerivation;
+  trace?: TransformationTrace;
+  /** ISO-8601. */
+  updatedAt: string;
+}
+
 export class WorkspaceDatabase extends Dexie {
   projects!: Table<ProjectMeta, string>;
   folders!: Table<Folder, string>;
   documents!: Table<DocumentEntry, string>;
   session!: Table<SessionState, string>;
   derDocuments!: Table<DerDocumentRecord, string>;
+  mrDocuments!: Table<MrDocumentRecord, string>;
 
   constructor(name = "graficador-academico-bd") {
     super(name);
@@ -57,6 +74,9 @@ export class WorkspaceDatabase extends Dexie {
     });
     this.version(2).stores({
       derDocuments: "documentId",
+    });
+    this.version(3).stores({
+      mrDocuments: "documentId",
     });
   }
 }

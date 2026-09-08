@@ -84,6 +84,20 @@ Motor determinista con trazabilidad (secciones 7 y 10). Primero solo el
 modo automatico.
 
 **Gate:** fixtures esperados de las 15 reglas de transformacion pasan.
+**CUMPLIDO** (2026-09-08): `transformDerToMr` (`src/features/transformation`)
+cubre las 15 reglas de spec 7 y produce `RelationalModel` + `TransformationTrace`
++ `MrDerivation`. Cubierto por `tests/transformation/transform.test.ts` (las 15
+reglas, con la 7.2 en sus 4 variantes de participacion, comparadas por
+semantica con `tests/transformation/semanticize.ts`) y
+`tests/transformation/determinism.test.ts`. La regeneracion segura de la
+seccion 10 (crear nuevo MR / reemplazar / cancelar, sin sobrescribir en
+silencio) esta implementada en el shell y probada en
+`tests/integration/transformation-persistence.test.ts`. El boton "Transformar"
+se habilita con un DER academicamente valido y abre un visor de MR de solo
+lectura (la edicion es del Incremento 5). Convenciones parametrizadas
+(ubicacion de FK en 1:1, composicion de PK en ternarias, jerarquias, atributos
+derivados) versionadas en `unlamTransformConventions` 1.0.0 y documentadas en
+`docs/ACADEMIC_RULES.md`. `npm run check` (140 tests) y `npm run build` verdes.
 
 ## Incremento 5 - MR grafico
 

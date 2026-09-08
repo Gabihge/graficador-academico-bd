@@ -230,3 +230,61 @@ decision, no reescribir las anteriores.
   por documento. Relevante recien con Crow's Foot (Incremento 10).
 - `ConceptualModel.notes` (spec 15.1): no se agrego todavia; llega con las
   notas del Incremento 8.
+
+## 2026-09-08 - Transformacion DER -> MR automatica (Incremento 4)
+
+- **`RelationalModel` segun spec 15.2** (`src/domain/relational/`): `schemas`
+  (`RelationSchema` con `attributes`, `primaryKey: string[]`,
+  `foreignKeys: ForeignKey[]`), `notes`, `revision`. FK como objeto
+  (`localAttributeIds` / `targetRelationId` / `targetAttributeIds`), nunca
+  flags. El "rol" de un atributo (`pk` / `fk` / `pk+fk` / `plain`) se **deriva**
+  (`attributeRole` en `queries.ts`), no se guarda.
+- **Trazabilidad** (`src/domain/transformation/`): `MrDerivation` (metadata del
+  MR derivado, spec 10: de que DER y revision salio, perfil, version de
+  convenciones, `isDerived`, `hasManualChanges`, `generatedAt`) +
+  `TransformationTrace` (lista de `TraceEntry`: `ruleId`, `ruleTitle`,
+  `sourceElementIds`, `targetKind`, `targetId`, `severity`, `note?`).
+- **La transformacion es su propio modulo** (`src/features/transformation`),
+  NO un slot `transform` en `AcademicRule`. El perfil de VALIDACION del
+  Incremento 3 no se toca; el perfil aporta solo **convenciones
+  parametrizadas** (`unlamTransformConventions` 1.0.0). El detalle de las
+  convenciones esta en `docs/ACADEMIC_RULES.md`.
+- **Interpretacion del gate**: los fixtures de spec 26 para este incremento
+  son los de las 15 reglas de transformacion (spec 7), comparados por
+  **semantica** (nombres de esquema/atributo, PK por nombres, FK por pares
+  `(local, destino)`), nunca por ids. Los items 23-25 de spec 26 (FK simple,
+  FK compuesta, PK+FK) se cubren como aserciones sobre el `RelationalModel` en
+  `tests/domain/relational-model.test.ts`.
+- **El MR derivado es un documento `mr` de primera clase** en el arbol del
+  proyecto, con `derivation.generatedFromDocumentId` apuntando al DER.
+  Persistido en la tabla Dexie **v3** `mrDocuments` (upgrade aditivo). La
+  **edicion** del MR es del Incremento 5; en este incremento es de solo
+  lectura (`useMrStore`, `MrReadonlyView`).
+- **Al "crear un MR nuevo" no se navega**: `runTransformation` deja el
+  documento DER activo (el MR queda en el arbol y se muestra en el modal). Asi
+  el trabajo sobre el DER no se interrumpe y la regeneracion (spec 10) es
+  alcanzable de inmediato desde el mismo DER.
+- **Regeneracion segura (spec 10)**: al re-transformar un DER que ya tiene un
+  MR derivado, `RegenerateDialog` ofrece **Crear un MR nuevo** / **Reemplazar
+  el MR derivado** / **Cancelar**. Nunca sobrescribe en silencio. Reemplazar
+  sube `generatedFromRevision`; `hasManualChanges` se conserva pero es siempre
+  `false` hasta el Incremento 5 (no hay edicion de MR); si fuera `true` el
+  dialogo muestra un aviso mas explicito.
+- **"Transformar" se habilita** cuando el documento activo es DER, tiene al
+  menos una entidad y es academicamente valido (`isDerValid`). "Exportar"
+  sigue deshabilitado (Incremento 9).
+- **Limpieza de `mrDocuments`** al borrar documento/carpeta/proyecto (mismo
+  patron que `derDocuments`).
+
+### Pendientes detectados (revisar en incrementos futuros, NO se tocan ahora)
+
+- Transformacion **guiada** paso a paso (spec 9): Incremento 7. El motor ya
+  deja notas en la traza para los casos con eleccion (1:1:N, 1:1:1).
+- Edicion y **validacion del MR** (spec 8 lista MR): Incremento 5. `useMrStore`
+  es de solo lectura por ahora.
+- `hasManualChanges` siempre `false` hasta que exista edicion de MR
+  (Incremento 5); recien ahi el aviso de regeneracion se vuelve relevante.
+- `ViewLayout` propio del MR grafico (spec 15.3): Incremento 5.
+- DSL textual del MR y su round-trip (items 26-27 de spec 26): Incremento 6.
+- `duplicateDocument` / `duplicateProject` / `cloneProject` siguen sin copiar
+  contenido DER **ni MR** (arrastrado de incrementos previos).

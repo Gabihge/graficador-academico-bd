@@ -19,3 +19,16 @@ el Incremento 1) sea compatible desde el principio.
 Mismo modelo de dominio que `.bdproj`, pero en IndexedDB para autoguardado
 continuo sin intervencion del usuario. El `.bdproj` es el mecanismo de
 exportacion/portabilidad; Dexie es el mecanismo de autoguardado.
+
+Estado del esquema Dexie:
+
+- **v1** (Incremento 1): espacio de trabajo (`projects`, `folders`,
+  `documents`, `session`).
+- **v2** (Incremento 2): `derDocuments` (`ConceptualModel` + `ViewLayout` por
+  documento DER).
+- **v3** (Incremento 4): `mrDocuments` (`RelationalModel` + `MrDerivation` +
+  `TransformationTrace` por documento MR). Un MR derivado guarda de que DER y
+  revision salio, con que perfil y version de convenciones.
+
+Todos los upgrades son aditivos. La edicion del MR (y su `ViewLayout` propio)
+llega en el Incremento 5; el import/export `.bdproj` en el Incremento 9.

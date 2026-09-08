@@ -76,9 +76,11 @@ export async function renameDocument(id: string, name: string): Promise<void> {
   });
 }
 
+const CONTENT_TABLES = [db.folders, db.documents, db.projects, db.derDocuments, db.mrDocuments] as const;
+
 /** Elimina una carpeta y, en cascada, sus subcarpetas y documentos. */
 export async function deleteFolderCascade(projectId: string, folderId: string): Promise<void> {
-  await db.transaction("rw", db.folders, db.documents, db.projects, db.derDocuments, async () => {
+  await db.transaction("rw", ...CONTENT_TABLES, async () => {
     const folders = await db.folders.where("projectId").equals(projectId).toArray();
 
     const childrenByParent = new Map<string | null, Folder[]>();
@@ -96,10 +98,14 @@ export async function deleteFolderCascade(projectId: string, folderId: string): 
       for (const child of childrenByParent.get(current) ?? []) stack.push(child.id);
     }
 
-    // Contenido DER de los documentos que se van a borrar: se limpia aca para
-    // no dejar filas huerfanas en `derDocuments` (Incremento 2).
-    const removedDocIds = (await db.documents.where("parentId").anyOf(toRemove).primaryKeys()) as string[];
+    // Contenido DER/MR de los documentos que se van a borrar: se limpia aca
+    // para no dejar filas huerfanas.
+    const removedDocIds = (await db.documents
+      .where("parentId")
+      .anyOf(toRemove)
+      .primaryKeys()) as string[];
     await db.derDocuments.bulkDelete(removedDocIds);
+    await db.mrDocuments.bulkDelete(removedDocIds);
     await db.documents.where("parentId").anyOf(toRemove).delete();
     await db.folders.bulkDelete(toRemove);
     await touchProject(projectId);
@@ -107,23 +113,25 @@ export async function deleteFolderCascade(projectId: string, folderId: string): 
 }
 
 export async function deleteDocument(id: string): Promise<void> {
-  await db.transaction("rw", db.documents, db.projects, db.derDocuments, async () => {
+  await db.transaction("rw", db.documents, db.projects, db.derDocuments, db.mrDocuments, async () => {
     const document = await db.documents.get(id);
     if (!document) return;
     await db.documents.delete(id);
     await db.derDocuments.delete(id);
+    await db.mrDocuments.delete(id);
     await touchProject(document.projectId);
   });
 }
 
-/** Borra el proyecto entero (metadatos + carpetas + documentos + contenido DER). */
+/** Borra el proyecto entero (metadatos + carpetas + documentos + contenido DER/MR). */
 export async function deleteProjectCascade(projectId: string): Promise<void> {
-  await db.transaction("rw", db.projects, db.folders, db.documents, db.derDocuments, async () => {
+  await db.transaction("rw", ...CONTENT_TABLES, async () => {
     const removedDocIds = (await db.documents
       .where("projectId")
       .equals(projectId)
       .primaryKeys()) as string[];
     await db.derDocuments.bulkDelete(removedDocIds);
+    await db.mrDocuments.bulkDelete(removedDocIds);
     await db.folders.where("projectId").equals(projectId).delete();
     await db.documents.where("projectId").equals(projectId).delete();
     await db.projects.delete(projectId);

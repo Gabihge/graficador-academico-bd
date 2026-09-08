@@ -28,6 +28,9 @@ interface HeaderProps {
   /** Hay un documento DER activo: habilita deshacer/rehacer y validar. */
   derEditorActive: boolean;
   onValidate: () => void;
+  /** El DER activo es academicamente valido: habilita transformar. */
+  canTransform: boolean;
+  onTransform: () => void;
   onAbout: () => void;
 }
 
@@ -46,6 +49,8 @@ export function Header({
   onToggleInspector,
   derEditorActive,
   onValidate,
+  canTransform,
+  onTransform,
   onAbout,
 }: HeaderProps) {
   const project = useWorkspaceStore((s) => s.project);
@@ -148,8 +153,21 @@ export function Header({
             <ShieldCheck size={16} aria-hidden />
           </button>
         </Tooltip>
-        <Tooltip label="Transformar DER a MR (proximo incremento)" side="bottom">
-          <button type="button" className={ghostIconButton} disabled aria-label="Transformar">
+        <Tooltip
+          label={
+            canTransform
+              ? "Transformar DER a MR"
+              : "Transformar DER a MR (requiere un DER academicamente valido)"
+          }
+          side="bottom"
+        >
+          <button
+            type="button"
+            className={ghostIconButton}
+            disabled={!canTransform}
+            aria-label="Transformar"
+            onClick={onTransform}
+          >
             <ArrowRightLeft size={16} aria-hidden />
           </button>
         </Tooltip>

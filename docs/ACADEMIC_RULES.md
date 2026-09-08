@@ -63,6 +63,43 @@ version, fecha, revision del DER de origen.
 | 7.14 | Jerarquias | El identificador de la supraentidad puede aparecer como PK+FK en las subentidades; se mantiene trazabilidad de herencia |
 | 7.15 | Atributos calculados | Si no hay regla academica inequivoca: se conserva la propiedad en el DER y se emite advertencia en vez de inventar una transformacion |
 
+### Convenciones de transformacion versionadas (`unlam-bd` 1.0.0)
+
+Implementadas en `src/features/transformation` y parametrizadas por
+`unlamTransformConventions` (`src/academic/profiles/unlam/transform-conventions.ts`).
+Donde spec 7 dice "segun la convencion de catedra" o "parametrizada", el
+parametro vive ahi, no como `if` suelto en el motor.
+
+- **7.2 (1:1)**: la FK va en el extremo de participacion **parcial** y
+  referencia al extremo **total**. Desempate (total/total o parcial/parcial):
+  la FK va en el **segundo participante** (orden del array) referenciando al
+  primero; la trazabilidad deja nota de que la fusion en una sola tabla
+  (total/total) o una tabla puente (parcial/parcial) tambien serian validas.
+- **7.3 (1:N)**: en notacion Chen, el participante con cardinalidad "1"
+  relaciona cada instancia con una sola del otro lado; ese esquema recibe la
+  FK, que referencia al participante con cardinalidad "N".
+- **7.6 (unaria N:N)**: ambas columnas de la clave se prefijan por rol
+  (`<rol>_<pk>`), aunque no colisionen, para que sean inequivocas.
+- **7.12 (1:1:N)**: PK = FK al extremo N + FK al **primer** extremo 1 (orden
+  del array). El otro par tambien seria clave candidata (nota en la traza).
+- **7.13 (1:1:1)**: PK = FK a `participants[0]` + FK a `participants[1]`. Los
+  otros pares son igual de validos; el modo guiado (Incremento 7) expondra la
+  eleccion.
+- **7.14 (jerarquias)**: estrategia **una tabla por entidad**. La supraentidad
+  genera su esquema (7.1); cada subentidad genera su esquema cuya PK **es** la
+  PK de la supraentidad, y esos atributos son ademas FK a la supraentidad
+  (PK+FK). Igual para total/parcial y exclusiva/solapada en la v1.0.0.
+- **7.15 (derivados)**: politica `keep-with-warning`. El atributo se conserva
+  como atributo comun y se emite una entrada de traza `warning`; no se inventa
+  una transformacion.
+- **Nombre de atributo FK**: igual al nombre del atributo PK referenciado;
+  ante colision (o en 7.6), se prefija con el rol del participante o el nombre
+  de la entidad de origen (deterministico).
+
+Presentacion academica del MR (spec: PK subrayado, FK negrita, PK+FK ambas)
+tambien vive en estas convenciones (`mrPresentation`), no hardcodeada en el
+componente.
+
 ## Validacion academica
 
 Severidades: `error` (bloquea transformacion/archivo valido), `warning`
