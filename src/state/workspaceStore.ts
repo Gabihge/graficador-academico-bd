@@ -41,6 +41,13 @@ interface WorkspaceState {
   /** Lee IndexedDB y reabre el ultimo proyecto/documento de la sesion previa. */
   init: () => Promise<void>;
 
+  /**
+   * Refleja el estado de autoguardado en el indicador del header. Lo usa el
+   * editor DER (src/state/derEditorStore), que persiste su propio contenido
+   * fuera de este store pero comparte el mismo indicador visual.
+   */
+  setSaveState: (saveState: SaveState) => void;
+
   createProject: (name: string) => Promise<void>;
   openProject: (id: string) => Promise<void>;
   closeProject: () => Promise<void>;
@@ -289,6 +296,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       set({ activeDocumentId: id });
       await repo.writeSession({ lastDocumentId: id });
     },
+
+    setSaveState: (saveState) => set({ saveState }),
   };
 });
 

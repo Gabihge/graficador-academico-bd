@@ -45,6 +45,15 @@ elementos. Edicion completa (crear/mover/conectar/eliminar/undo/redo).
 Validacion estructural minima.
 
 **Gate:** se puede dibujar y validar un DER binario simple de punta a punta.
+**CUMPLIDO** (2026-09-07): cubierto por el test de integracion
+`tests/integration/der-editor-persistence.test.ts` ("construye un DER binario
+valido, lo persiste y lo recupera tras recargar"), el test de validacion
+estructural `tests/features/structural-validation.test.ts` y el test de
+componente `tests/der-editor.test.tsx`. Verificado ademas contra el navegador:
+crear dos entidades con identificador, una relacion binaria, conectar ambos
+extremos y fijar cardinalidad/participacion de forma independiente; el boton
+"Validar" abre la pestana Validacion del Inspector; undo/redo por teclado y
+header. `npm run check` y `npm run build` verdes desde instalacion limpia.
 
 ## Incremento 3 - DER avanzado + perfil UNLaM completo
 

@@ -84,3 +84,81 @@ decision, no reescribir las anteriores.
   (`@radix-ui/react-dialog`) y encima `PromptDialog`, `ConfirmDialog` y
   `NewDocumentDialog`. Confirmacion explicita para toda eliminacion
   (proyecto, carpeta en cascada, documento).
+
+## 2026-09-07 - DER basico (Incremento 2)
+
+- **Identificador como flag por atributo**: `ConceptualAttribute.isIdentifier`
+  es un booleano; el identificador de una entidad es el conjunto de sus
+  atributos con el flag en `true`. Se eligio sobre una lista separada de
+  "atributos clave" en la entidad porque simplifica el sync con la UI (un
+  checkbox por atributo) y con el borrado, y ya soporta identificador
+  compuesto. Es propiedad semantica: el subrayado de Chen se deriva de ella,
+  nunca al reves (regla de oro de CLAUDE.md).
+- **Cardinalidad y participacion por extremo y como ejes separados**: cada
+  `RelationshipEnd` guarda `cardinality` (`"1" | "N"`) y `participation`
+  (`"total" | "partial"`) como campos distintos, nunca un string fusionado
+  tipo `"1:N total"` (.claude/rules/domain.md). Valores por defecto al
+  conectar: `"N"` y `"partial"`.
+- **Relacion siempre binaria en este incremento**: `connect` es no-op si la
+  relacion ya tiene dos extremos o si la entidad ya esta conectada. Unarias,
+  ternarias y roles son del Incremento 3. La validacion estructural marca como
+  error toda relacion con aridad distinta de dos o que repita una entidad.
+- **Validacion del Incremento 2 = solo integridad estructural**: vive en
+  `src/features/validation/structural.ts` y chequea forma del grafo (nombres
+  presentes, relaciones binarias bien formadas, referencias consistentes,
+  nombres duplicados, entidad sin identificador). NO es la validacion
+  academica de la catedra: esa se implementa como `RuleProfile` versionado en
+  `src/academic/profiles/unlam` en el Incremento 3, tal como ya anticipaban
+  `docs/ACADEMIC_RULES.md` e `docs/INCREMENTOS.md`. Por eso no hay ninguna
+  regla de catedra como `if` suelto en el validador estructural.
+- **Atributos como ovalos-nodo en Chen**: cada atributo se dibuja como un
+  ovalo propio conectado por una linea a su dueno (entidad o relacion), no
+  como texto dentro del rectangulo. Es la notacion Chen estricta de
+  `docs/ACADEMIC_RULES.md`; decision confirmada con el usuario al arrancar el
+  incremento.
+- **Participacion distinguible sin color**: la arista de participacion total
+  se dibuja con linea doble (dos trazos paralelos) y la parcial con linea
+  simple; la etiqueta ademas rotula "total"/"parcial" y la cardinalidad.
+  Cumple `.claude/rules/ui.md` (el color nunca es el unico indicador).
+- **Estado del editor DER en un store propio**: `src/state/derEditorStore.ts`
+  (Zustand) tiene el `ConceptualModel`, el `ViewLayout`, la seleccion y el
+  historial de undo/redo. El estado efimero de UI (herramienta activa,
+  pestana del inspector, paneles) sigue en React state local del shell.
+- **`ViewLayout` separado del modelo**: las posiciones de los nodos
+  (`src/domain/view/layout.ts`) se persisten junto al `ConceptualModel` pero
+  como objeto aparte, indexado por id de elemento. Mover un nodo no toca la
+  semantica. El canvas nunca es fuente de verdad.
+- **Historial de undo/redo en memoria y por documento**: no se persiste; se
+  descarta al cerrar o cambiar de documento. Tope 100 entradas. Un arrastre
+  de nodo es una unica entrada de historial (snapshot al empezar el gesto).
+- **Persistencia Dexie v2**: nueva tabla `derDocuments` (`documentId` ->
+  `{ model, layout, updatedAt }`). Upgrade aditivo: no migra ni toca las
+  tablas del Incremento 1. Escritura con debounce de 400 ms; se expone
+  `flushDerEditorPersistence()` para forzarla (tests / cierre).
+- **Limpieza de contenido DER al borrar**: `deleteDocument`,
+  `deleteFolderCascade` y `deleteProjectCascade` ahora tambien borran las
+  filas de `derDocuments` de los documentos afectados, para no dejar
+  huerfanos que introduce este incremento.
+- **`workspaceStore.setSaveState`**: se agrego esta accion para que el editor
+  DER (que persiste su propio contenido fuera de ese store) pueda reflejar
+  "Guardando..."/"Guardado" en el indicador ya existente del header.
+  Acoplamiento minimo y explicito entre los dos stores.
+- **Botones del header habilitados en este incremento**: Deshacer, Rehacer y
+  Validar pasan a funcionar cuando hay un documento DER activo. Transformar y
+  Exportar siguen deshabilitados (Incrementos 4 y 9).
+- **Herramientas "Jerarquia" y "Nota" siguen inertes**: se mantienen visibles
+  pero sin efecto (continua la excepcion documentada del Incremento 1).
+  "Jerarquia" se activa en el Incremento 3; "Nota", cuando corresponda.
+
+### Pendientes detectados (revisar en incrementos futuros, NO se tocan ahora)
+
+- `duplicateDocument`, `duplicateProject` y `cloneProject` todavia NO copian
+  el `ConceptualModel` / `ViewLayout` de los documentos DER: siguen copiando
+  solo la entrada del arbol, como en el Incremento 1. Al duplicar, el DER
+  destino arranca vacio. Revisar cuando duplicar con contenido sea un
+  requisito.
+- La tool rail expone "Jerarquia" y "Nota" como controles inertes, lo que
+  roza `.claude/rules/ui.md` ("no mostrar controles de incrementos futuros").
+  Reconciliar al implementarlas.
+- El renombrado de elementos del DER es solo por el Inspector; evaluar edicion
+  inline sobre el propio nodo del canvas mas adelante.
