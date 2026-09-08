@@ -2,10 +2,11 @@ import type { LucideIcon } from "lucide-react";
 import { Circle, Diamond, MousePointer2, Square, StickyNote, Triangle } from "lucide-react";
 import { Tooltip } from "@/components/ui/Tooltip";
 
-// Herramientas minimas de la notacion Chen (spec 11.3). En el Incremento 1
-// la rail es navegable pero todavia no dibuja sobre el canvas: seleccionar
-// una herramienta solo cambia el estado visual. La creacion real de
-// elementos llega con el editor DER (Incremento 2). Ver docs/DECISIONS.md.
+// Herramientas de la notacion Chen (spec 11.3). En el Incremento 2 dibujan de
+// verdad: "select", "entity", "relationship" y "attribute" estan conectadas al
+// editor DER. "hierarchy" y "note" siguen presentes pero INERTES (continua la
+// excepcion documentada del Incremento 1): "hierarchy" se activa en el
+// Incremento 3 y "note" cuando corresponda. Ver docs/DECISIONS.md.
 export type ToolId = "select" | "entity" | "relationship" | "attribute" | "hierarchy" | "note";
 
 const TOOLS: { id: ToolId; label: string; icon: LucideIcon }[] = [

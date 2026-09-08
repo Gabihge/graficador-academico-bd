@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { DOCUMENT_KIND_LABELS } from "@/domain/project";
 import { useWorkspaceStore } from "@/state/workspaceStore";
+import { useDerEditorStore } from "@/state/derEditorStore";
 import { Menu } from "@/components/ui/Menu";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { ghostIconButton } from "@/components/ui/buttonStyles";
@@ -24,6 +25,9 @@ interface HeaderProps {
   onToggleExplorer: () => void;
   inspectorOpen: boolean;
   onToggleInspector: () => void;
+  /** Hay un documento DER activo: habilita deshacer/rehacer y validar. */
+  derEditorActive: boolean;
+  onValidate: () => void;
   onAbout: () => void;
 }
 
@@ -40,6 +44,8 @@ export function Header({
   onToggleExplorer,
   inspectorOpen,
   onToggleInspector,
+  derEditorActive,
+  onValidate,
   onAbout,
 }: HeaderProps) {
   const project = useWorkspaceStore((s) => s.project);
@@ -48,6 +54,11 @@ export function Header({
     s.documents.find((doc) => doc.id === s.activeDocumentId),
   );
   const closeProject = useWorkspaceStore((s) => s.closeProject);
+
+  const undo = useDerEditorStore((s) => s.undo);
+  const redo = useDerEditorStore((s) => s.redo);
+  const canUndo = useDerEditorStore((s) => s.past.length > 0);
+  const canRedo = useDerEditorStore((s) => s.future.length > 0);
 
   return (
     <header className="pointer-events-auto absolute inset-x-3 top-3 z-30 flex h-14 items-center justify-between gap-3 rounded-2xl border border-neutral-200/70 bg-white/75 px-3 shadow-sm backdrop-blur-md">
@@ -104,18 +115,36 @@ export function Header({
 
       <div className="flex shrink-0 items-center gap-0.5">
         <Tooltip label="Deshacer" side="bottom">
-          <button type="button" className={ghostIconButton} disabled aria-label="Deshacer">
+          <button
+            type="button"
+            className={ghostIconButton}
+            disabled={!derEditorActive || !canUndo}
+            aria-label="Deshacer"
+            onClick={() => undo()}
+          >
             <Undo2 size={16} aria-hidden />
           </button>
         </Tooltip>
         <Tooltip label="Rehacer" side="bottom">
-          <button type="button" className={ghostIconButton} disabled aria-label="Rehacer">
+          <button
+            type="button"
+            className={ghostIconButton}
+            disabled={!derEditorActive || !canRedo}
+            aria-label="Rehacer"
+            onClick={() => redo()}
+          >
             <Redo2 size={16} aria-hidden />
           </button>
         </Tooltip>
         <span className="mx-1 h-5 w-px bg-neutral-200" aria-hidden />
-        <Tooltip label="Validar (proximo incremento)" side="bottom">
-          <button type="button" className={ghostIconButton} disabled aria-label="Validar">
+        <Tooltip label="Validar" side="bottom">
+          <button
+            type="button"
+            className={ghostIconButton}
+            disabled={!derEditorActive}
+            aria-label="Validar"
+            onClick={onValidate}
+          >
             <ShieldCheck size={16} aria-hidden />
           </button>
         </Tooltip>
