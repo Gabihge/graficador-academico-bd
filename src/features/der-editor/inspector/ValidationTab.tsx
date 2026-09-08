@@ -1,12 +1,12 @@
 import { useMemo } from "react";
 import { CircleAlert, CircleCheck, Info, TriangleAlert } from "lucide-react";
-import type { ConceptualElementKind } from "@/domain/conceptual";
 import { useDerEditorStore } from "@/state/derEditorStore";
 import {
   SEVERITY_LABELS,
-  validateStructure,
+  elementKindOf,
+  validateDer,
+  type AcademicIssue,
   type Severity,
-  type ValidationIssue,
 } from "@/features/validation";
 
 interface ValidationTabProps {
@@ -21,22 +21,24 @@ const SEVERITY_ICON: Record<Severity, typeof Info> = {
 };
 
 /**
- * Pestana "Validacion": integridad ESTRUCTURAL del modelo (no reglas de
- * catedra). Se recalcula sola con cada cambio; el boton "Validar" del header
- * solo trae el foco hasta aca.
+ * Pestana "Validacion": corre el `RuleProfile` UNLaM completo sobre el DER
+ * (integridad de modelo + convenciones de catedra). Se recalcula sola con cada
+ * cambio; el boton "Validar" del header solo trae el foco hasta aca.
  */
 export function ValidationTab({ onNavigateToElement }: ValidationTabProps) {
   const model = useDerEditorStore((s) => s.model);
   const select = useDerEditorStore((s) => s.select);
 
-  const issues = useMemo(() => validateStructure(model), [model]);
+  const issues = useMemo(() => validateDer(model), [model]);
   const counts = useMemo(() => summarize(issues), [issues]);
 
   if (issues.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
         <CircleCheck size={22} className="text-emerald-500" aria-hidden />
-        <p className="text-xs text-neutral-500">Sin problemas estructurales.</p>
+        <p className="text-xs text-neutral-500">
+          Sin problemas: el DER cumple el perfil academico UNLaM.
+        </p>
       </div>
     );
   }
@@ -53,8 +55,11 @@ export function ValidationTab({ onNavigateToElement }: ValidationTabProps) {
             key={issue.id}
             issue={issue}
             onSelect={() => {
-              if (issue.targetId && issue.targetKind !== "model") {
-                select({ kind: issue.targetKind as ConceptualElementKind, id: issue.targetId });
+              const targetId = issue.elementIds[0];
+              if (!targetId) return;
+              const kind = elementKindOf(model, targetId);
+              if (kind) {
+                select({ kind, id: targetId });
                 onNavigateToElement();
               }
             }}
@@ -65,9 +70,9 @@ export function ValidationTab({ onNavigateToElement }: ValidationTabProps) {
   );
 }
 
-function IssueRow({ issue, onSelect }: { issue: ValidationIssue; onSelect: () => void }) {
+function IssueRow({ issue, onSelect }: { issue: AcademicIssue; onSelect: () => void }) {
   const Icon = SEVERITY_ICON[issue.severity];
-  const clickable = Boolean(issue.targetId) && issue.targetKind !== "model";
+  const clickable = issue.elementIds.length > 0;
   const tone =
     issue.severity === "error"
       ? "text-red-600"
@@ -88,14 +93,18 @@ function IssueRow({ issue, onSelect }: { issue: ValidationIssue; onSelect: () =>
         <Icon size={14} className={`mt-0.5 shrink-0 ${tone}`} aria-hidden />
         <span className="min-w-0">
           <span className={`font-semibold ${tone}`}>{SEVERITY_LABELS[issue.severity]}</span>
-          <span className="mt-0.5 block text-neutral-600">{issue.message}</span>
+          <span className="ml-1 text-[10px] text-neutral-400">
+            {issue.source} · {issue.ruleId}
+          </span>
+          <span className="mt-0.5 block text-neutral-700">{issue.message}</span>
+          <span className="mt-0.5 block text-[11px] text-neutral-400">{issue.explanation}</span>
         </span>
       </button>
     </li>
   );
 }
 
-function summarize(issues: ValidationIssue[]): Record<Severity, number> {
+function summarize(issues: AcademicIssue[]): Record<Severity, number> {
   const counts: Record<Severity, number> = { error: 0, warning: 0, info: 0 };
   for (const issue of issues) counts[issue.severity] += 1;
   return counts;

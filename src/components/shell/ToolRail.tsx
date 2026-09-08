@@ -2,11 +2,11 @@ import type { LucideIcon } from "lucide-react";
 import { Circle, Diamond, MousePointer2, Square, StickyNote, Triangle } from "lucide-react";
 import { Tooltip } from "@/components/ui/Tooltip";
 
-// Herramientas de la notacion Chen (spec 11.3). En el Incremento 2 dibujan de
-// verdad: "select", "entity", "relationship" y "attribute" estan conectadas al
-// editor DER. "hierarchy" y "note" siguen presentes pero INERTES (continua la
-// excepcion documentada del Incremento 1): "hierarchy" se activa en el
-// Incremento 3 y "note" cuando corresponda. Ver docs/DECISIONS.md.
+// Herramientas de la notacion Chen (spec 11.3). Desde el Incremento 3 dibujan
+// de verdad "select", "entity", "relationship", "attribute" y "hierarchy".
+// "note" sigue presente pero INERTE (las notas son del Incremento 8). Las
+// variantes (entidad debil, tipo de atributo, etc.) se eligen despues en el
+// Inspector, no con un boton por subtipo. Ver docs/DECISIONS.md.
 export type ToolId = "select" | "entity" | "relationship" | "attribute" | "hierarchy" | "note";
 
 const TOOLS: { id: ToolId; label: string; icon: LucideIcon }[] = [

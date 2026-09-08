@@ -1,44 +1,65 @@
-// Estado del editor DER (Incremento 2). Orquesta las operaciones puras del
-// dominio (src/domain/conceptual) sobre el modelo del documento activo,
-// mantiene el layout del canvas (src/domain/view), un historial de undo/redo
-// en memoria y la persistencia en Dexie (tabla `derDocuments`).
+// Estado del editor DER. Orquesta las operaciones puras del dominio
+// (src/domain/conceptual) sobre el modelo del documento activo, mantiene el
+// layout del canvas (src/domain/view), un historial de undo/redo en memoria y
+// la persistencia en Dexie (tabla `derDocuments`).
 //
 // Separacion de responsabilidades (docs/ARCHITECTURE.md):
-// - el MODELO y el LAYOUT son estado persistente de dominio -> viven aca;
-// - la seleccion actual tambien vive aca porque el Inspector y el canvas la
-//   comparten;
-// - el estado efimero de UI (paneles abiertos, herramienta activa, pestana
-//   del inspector) NO vive aca: vive en React state local del shell.
+// - MODELO y LAYOUT son estado persistente de dominio -> viven aca;
+// - la seleccion tambien vive aca porque Inspector y canvas la comparten;
+// - el estado efimero de UI (paneles, herramienta activa, pestana del
+//   inspector) NO vive aca: vive en React state local del shell.
 //
-// El historial de undo/redo es por documento y NO se persiste: se descarta
-// al cerrar o cambiar de documento.
+// El historial de undo/redo es por documento y NO se persiste.
 
 import { create } from "zustand";
 import {
   addAttribute,
+  addComponent,
   addEntity,
+  addHierarchy,
+  addHierarchySub,
   addRelationship,
   collectElementIds,
   connect,
   createAttribute,
   createConceptualModel,
   createEntity,
+  createHierarchy,
   createRelationship,
   disconnect,
-  findAttributeOwner,
+  findAttribute,
+  migrateConceptualModel,
   removeAttribute,
   removeEntity,
+  removeHierarchy,
+  removeHierarchySub,
   removeRelationship,
   renameAttribute,
   renameEntity,
+  renameHierarchy,
   renameRelationship,
+  setAttributeDiscriminator,
   setAttributeIdentifier,
-  setEndCardinality,
-  setEndParticipation,
+  setAttributeKind,
+  setEntityKind,
+  setHierarchyDiscriminator,
+  setHierarchyOverlap,
+  setHierarchyPartition,
+  setHierarchySuper,
+  setParticipantCardinality,
+  setParticipantParticipation,
+  setParticipantRole,
+  setRelationshipDegree,
+  setRelationshipIdentifying,
+  type AttributeKind,
   type CardinalityBound,
   type ConceptualElementKind,
   type ConceptualModel,
+  type EntityKind,
+  type HierarchyOverlap,
+  type HierarchyPartition,
   type Participation,
+  type RelationshipDegree,
 } from "@/domain/conceptual";
 import {
   createViewLayout,
@@ -72,37 +93,49 @@ interface DerEditorState {
   past: Snapshot[];
   future: Snapshot[];
 
-  /** Carga el contenido DER de un documento (o inicializa uno vacio y lo persiste). */
   load: (documentId: string) => Promise<void>;
-  /** Descarta el editor (cerrar documento / proyecto / cambiar a un doc no-DER). */
   clear: () => void;
-
   select: (selection: DerSelection) => void;
 
   addEntity: (position: NodePosition) => string;
   addRelationship: (position: NodePosition) => string;
+  addHierarchy: (position: NodePosition) => string;
   addAttributeTo: (ownerKind: "entity" | "relationship", ownerId: string) => string | null;
+  addComponentTo: (compositeAttributeId: string) => string | null;
 
   renameElement: (kind: ConceptualElementKind, id: string, name: string) => void;
-  setAttributeIdentifier: (attributeId: string, isIdentifier: boolean) => void;
 
+  setEntityKind: (entityId: string, kind: EntityKind) => void;
+  setAttributeKind: (attributeId: string, kind: AttributeKind) => void;
+  setAttributeIdentifier: (attributeId: string, isIdentifier: boolean) => void;
+  setAttributeDiscriminator: (attributeId: string, isDiscriminator: boolean) => void;
+
+  setRelationshipDegree: (relationshipId: string, degree: RelationshipDegree) => void;
+  setRelationshipIdentifying: (relationshipId: string, identifying: boolean) => void;
   connect: (relationshipId: string, entityId: string) => void;
-  disconnect: (relationshipId: string, entityId: string) => void;
-  setEndCardinality: (
+  disconnect: (relationshipId: string, participantId: string) => void;
+  setParticipantCardinality: (
     relationshipId: string,
-    entityId: string,
+    participantId: string,
     value: CardinalityBound,
   ) => void;
-  setEndParticipation: (
+  setParticipantParticipation: (
     relationshipId: string,
-    entityId: string,
+    participantId: string,
     value: Participation,
   ) => void;
+  setParticipantRole: (relationshipId: string, participantId: string, role: string) => void;
+
+  connectHierarchy: (hierarchyId: string, entityId: string) => void;
+  setHierarchySuper: (hierarchyId: string, entityId: string) => void;
+  removeHierarchySub: (hierarchyId: string, entityId: string) => void;
+  setHierarchyPartition: (hierarchyId: string, partition: HierarchyPartition) => void;
+  setHierarchyOverlap: (hierarchyId: string, overlap: HierarchyOverlap) => void;
+  setHierarchyDiscriminator: (hierarchyId: string, attributeId: string | undefined) => void;
 
   deleteElement: (kind: ConceptualElementKind, id: string) => void;
   deleteSelection: () => void;
 
-  /** Snapshot para un gesto continuo (arrastre) que reune varios movimientos. */
   beginInteraction: () => void;
   moveNode: (elementId: string, position: NodePosition) => void;
   endInteraction: () => void;
@@ -138,11 +171,7 @@ async function flushPersist(): Promise<void> {
   }
 }
 
-/**
- * Fuerza la escritura de cualquier cambio con persistencia pendiente. Util
- * para tests deterministas y como red de seguridad antes de descartar el
- * editor.
- */
+/** Fuerza la escritura pendiente. Util para tests deterministas y cierre. */
 export function flushDerEditorPersistence(): Promise<void> {
   return flushPersist();
 }
@@ -159,17 +188,29 @@ function pruneLayout(model: ConceptualModel, layout: ViewLayout): ViewLayout {
   return prunePositions(layout, new Set(collectElementIds(model)));
 }
 
+/** Posicion escalonada para un nodo hijo (atributo o componente) de un dueno. */
+function childPosition(layout: ViewLayout, ownerId: string, index: number): NodePosition {
+  const ownerPos = layout.positions[ownerId] ?? { x: 0, y: 0 };
+  return {
+    x: ownerPos.x + 40 + (index % 3) * 130,
+    y: ownerPos.y + 120 + Math.floor(index / 3) * 70,
+  };
+}
+
 export const useDerEditorStore = create<DerEditorState>((set, get) => {
   /**
-   * Aplica un cambio estructural: guarda el estado actual en el historial,
-   * descarta el "rehacer" pendiente, poda seleccion y layout, y programa la
-   * persistencia.
+   * Aplica un cambio estructural: sube el `revision`, guarda el estado actual en
+   * el historial, descarta el "rehacer" pendiente, poda seleccion y layout, y
+   * programa la persistencia.
    */
   function commit(next: { model?: ConceptualModel; layout?: ViewLayout }): void {
     const state = get();
     if (!state.documentId) return;
 
-    const model = next.model ?? state.model;
+    const baseModel = next.model ?? state.model;
+    const model = next.model
+      ? { ...baseModel, revision: state.model.revision + 1 }
+      : baseModel;
     const layout = pruneLayout(model, next.layout ?? state.layout);
 
     const past = [...state.past, { model: state.model, layout: state.layout }];
@@ -196,7 +237,6 @@ export const useDerEditorStore = create<DerEditorState>((set, get) => {
 
     load: async (documentId) => {
       if (get().documentId === documentId && get().status === "ready") return;
-      // Vacia cualquier escritura pendiente del documento anterior.
       await flushPersist();
       set({
         status: "loading",
@@ -209,10 +249,14 @@ export const useDerEditorStore = create<DerEditorState>((set, get) => {
       });
 
       const record = await derRepo.loadDerDocument(documentId);
-      if (get().documentId !== documentId) return; // cambio de documento durante la lectura
+      if (get().documentId !== documentId) return;
 
       if (record) {
-        set({ status: "ready", model: record.model, layout: record.layout });
+        set({
+          status: "ready",
+          model: migrateConceptualModel(record.model),
+          layout: record.layout,
+        });
       } else {
         const model = createConceptualModel();
         const layout = createViewLayout();
@@ -256,6 +300,16 @@ export const useDerEditorStore = create<DerEditorState>((set, get) => {
       return relationship.id;
     },
 
+    addHierarchy: (position) => {
+      const hierarchy = createHierarchy();
+      commit({
+        model: addHierarchy(get().model, hierarchy),
+        layout: setPosition(get().layout, hierarchy.id, position),
+      });
+      set({ selection: { kind: "hierarchy", id: hierarchy.id } });
+      return hierarchy.id;
+    },
+
     addAttributeTo: (ownerKind, ownerId) => {
       const { model, layout } = get();
       const owner =
@@ -265,15 +319,7 @@ export const useDerEditorStore = create<DerEditorState>((set, get) => {
       if (!owner) return null;
 
       const attribute = createAttribute();
-      // Posicion inicial del ovalo: debajo del dueno, escalonada por cantidad
-      // de atributos que ya tiene, para que no se encimen.
-      const ownerPos = layout.positions[ownerId] ?? { x: 0, y: 0 };
-      const index = owner.attributes.length;
-      const position = {
-        x: ownerPos.x + 40 + (index % 3) * 130,
-        y: ownerPos.y + 120 + Math.floor(index / 3) * 70,
-      };
-
+      const position = childPosition(layout, ownerId, owner.attributes.length);
       commit({
         model: addAttribute(model, ownerKind, ownerId, attribute),
         layout: setPosition(layout, attribute.id, position),
@@ -282,37 +328,99 @@ export const useDerEditorStore = create<DerEditorState>((set, get) => {
       return attribute.id;
     },
 
+    addComponentTo: (compositeAttributeId) => {
+      const { model, layout } = get();
+      const location = findAttribute(model, compositeAttributeId);
+      if (!location || location.attribute.kind !== "composite") return null;
+      const component = createAttribute();
+      const index = location.attribute.components?.length ?? 0;
+      const position = childPosition(layout, compositeAttributeId, index);
+      commit({
+        model: addComponent(model, compositeAttributeId, component),
+        layout: setPosition(layout, component.id, position),
+      });
+      set({ selection: { kind: "attribute", id: component.id } });
+      return component.id;
+    },
+
     renameElement: (kind, id, name) => {
       const { model } = get();
       if (kind === "entity") commit({ model: renameEntity(model, id, name) });
       else if (kind === "relationship") commit({ model: renameRelationship(model, id, name) });
+      else if (kind === "hierarchy") commit({ model: renameHierarchy(model, id, name) });
       else commit({ model: renameAttribute(model, id, name) });
     },
 
+    setEntityKind: (entityId, kind) => {
+      commit({ model: setEntityKind(get().model, entityId, kind) });
+    },
+    setAttributeKind: (attributeId, kind) => {
+      commit({ model: setAttributeKind(get().model, attributeId, kind) });
+    },
     setAttributeIdentifier: (attributeId, isIdentifier) => {
       commit({ model: setAttributeIdentifier(get().model, attributeId, isIdentifier) });
     },
+    setAttributeDiscriminator: (attributeId, isDiscriminator) => {
+      commit({ model: setAttributeDiscriminator(get().model, attributeId, isDiscriminator) });
+    },
 
+    setRelationshipDegree: (relationshipId, degree) => {
+      commit({ model: setRelationshipDegree(get().model, relationshipId, degree) });
+    },
+    setRelationshipIdentifying: (relationshipId, identifying) => {
+      commit({ model: setRelationshipIdentifying(get().model, relationshipId, identifying) });
+    },
     connect: (relationshipId, entityId) => {
       commit({ model: connect(get().model, relationshipId, entityId) });
     },
-
-    disconnect: (relationshipId, entityId) => {
-      commit({ model: disconnect(get().model, relationshipId, entityId) });
+    disconnect: (relationshipId, participantId) => {
+      commit({ model: disconnect(get().model, relationshipId, participantId) });
+    },
+    setParticipantCardinality: (relationshipId, participantId, value) => {
+      commit({
+        model: setParticipantCardinality(get().model, relationshipId, participantId, value),
+      });
+    },
+    setParticipantParticipation: (relationshipId, participantId, value) => {
+      commit({
+        model: setParticipantParticipation(get().model, relationshipId, participantId, value),
+      });
+    },
+    setParticipantRole: (relationshipId, participantId, role) => {
+      commit({ model: setParticipantRole(get().model, relationshipId, participantId, role) });
     },
 
-    setEndCardinality: (relationshipId, entityId, value) => {
-      commit({ model: setEndCardinality(get().model, relationshipId, entityId, value) });
+    connectHierarchy: (hierarchyId, entityId) => {
+      const hierarchy = get().model.hierarchies.find((h) => h.id === hierarchyId);
+      if (!hierarchy) return;
+      // Primera entidad conectada = supraentidad; el resto, subentidades.
+      const model =
+        hierarchy.superEntityId.trim().length === 0
+          ? setHierarchySuper(get().model, hierarchyId, entityId)
+          : addHierarchySub(get().model, hierarchyId, entityId);
+      commit({ model });
     },
-
-    setEndParticipation: (relationshipId, entityId, value) => {
-      commit({ model: setEndParticipation(get().model, relationshipId, entityId, value) });
+    setHierarchySuper: (hierarchyId, entityId) => {
+      commit({ model: setHierarchySuper(get().model, hierarchyId, entityId) });
+    },
+    removeHierarchySub: (hierarchyId, entityId) => {
+      commit({ model: removeHierarchySub(get().model, hierarchyId, entityId) });
+    },
+    setHierarchyPartition: (hierarchyId, partition) => {
+      commit({ model: setHierarchyPartition(get().model, hierarchyId, partition) });
+    },
+    setHierarchyOverlap: (hierarchyId, overlap) => {
+      commit({ model: setHierarchyOverlap(get().model, hierarchyId, overlap) });
+    },
+    setHierarchyDiscriminator: (hierarchyId, attributeId) => {
+      commit({ model: setHierarchyDiscriminator(get().model, hierarchyId, attributeId) });
     },
 
     deleteElement: (kind, id) => {
       const { model } = get();
       if (kind === "entity") commit({ model: removeEntity(model, id) });
       else if (kind === "relationship") commit({ model: removeRelationship(model, id) });
+      else if (kind === "hierarchy") commit({ model: removeHierarchy(model, id) });
       else commit({ model: removeAttribute(model, id) });
     },
 
@@ -343,42 +451,31 @@ export const useDerEditorStore = create<DerEditorState>((set, get) => {
       const state = get();
       if (state.past.length === 0 || !state.documentId) return;
       const previous = state.past[state.past.length - 1]!;
-      const model = previous.model;
-      const layout = previous.layout;
       set({
-        model,
-        layout,
+        model: previous.model,
+        layout: previous.layout,
         past: state.past.slice(0, -1),
         future: [{ model: state.model, layout: state.layout }, ...state.future].slice(
           0,
           HISTORY_LIMIT,
         ),
-        selection: pruneSelection(state.selection, model),
+        selection: pruneSelection(state.selection, previous.model),
       });
-      schedulePersist(state.documentId, model, layout);
+      schedulePersist(state.documentId, previous.model, previous.layout);
     },
 
     redo: () => {
       const state = get();
       if (state.future.length === 0 || !state.documentId) return;
       const nextSnapshot = state.future[0]!;
-      const model = nextSnapshot.model;
-      const layout = nextSnapshot.layout;
       set({
-        model,
-        layout,
-        past: [...state.past, { model: state.model, layout: state.layout }].slice(
-          -HISTORY_LIMIT,
-        ),
+        model: nextSnapshot.model,
+        layout: nextSnapshot.layout,
+        past: [...state.past, { model: state.model, layout: state.layout }].slice(-HISTORY_LIMIT),
         future: state.future.slice(1),
-        selection: pruneSelection(state.selection, model),
+        selection: pruneSelection(state.selection, nextSnapshot.model),
       });
-      schedulePersist(state.documentId, model, layout);
+      schedulePersist(state.documentId, nextSnapshot.model, nextSnapshot.layout);
     },
   };
 });
-
-/** Util para el Inspector: dado un atributo seleccionado, quien es su dueno. */
-export function selectAttributeOwner(model: ConceptualModel, attributeId: string) {
-  return findAttributeOwner(model, attributeId);
-}

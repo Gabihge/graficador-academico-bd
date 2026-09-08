@@ -62,6 +62,21 @@ ternarias, roles, jerarquias. `RuleProfile` UNLaM completo. Validacion
 academica completa (seccion 8 de la especificacion original).
 
 **Gate:** fixtures academicos validos/invalidos (seccion 26) pasan.
+**CUMPLIDO** (2026-09-07): el gate se interpreta como los fixtures de
+estructura DER de la seccion 26 (items 1-22), cada uno afirmado valido o
+invalido bajo el `RuleProfile` UNLaM sin transformar a MR (la transformacion
+DER -> MR es el Incremento 4). Cubierto por
+`tests/academic/academic-fixtures.test.ts` (los 22 casos + una variante
+invalida por cada regla `error`) y `tests/academic/unlam-profile.test.ts`
+(una comprobacion por regla). El modelo se alineo a la forma canonica de la
+especificacion (seccion 15.1): `Relationship.participants` con `role`,
+`Entity.kind`, atributos `kind`/`components`/`isDiscriminator`,
+`ConceptualModel.hierarchies` + `revision`. El renderer Chen dibuja entidad
+debil (doble rectangulo), atributos multivaluados/derivados/compuestos,
+relaciones identificadoras (doble rombo), roles y jerarquias (particion y
+solapamiento como texto). La validacion estructural minima del Incremento 2
+se reemplazo por `validateDer` (corre el perfil completo). `npm run check` y
+`npm run build` verdes desde instalacion limpia (107 tests).
 
 ## Incremento 4 - Transformacion DER -> MR (automatica)
 

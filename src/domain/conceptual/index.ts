@@ -4,3 +4,4 @@
 export * from "./types";
 export * from "./factories";
 export * from "./operations";
+export * from "./migrate";

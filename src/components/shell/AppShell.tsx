@@ -81,6 +81,16 @@ function WorkspaceShell() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isDerDocument, undo, redo]);
 
+  // El Inspector aparece al seleccionar un elemento del canvas (spec 11.5).
+  // Se suscribe al store externo (no es un setState sincrono en el efecto).
+  useEffect(
+    () =>
+      useDerEditorStore.subscribe((state, prev) => {
+        if (state.selection && !prev.selection) setInspectorOpen(true);
+      }),
+    [],
+  );
+
   const handleValidate = useCallback(() => {
     setInspectorOpen(true);
     setInspectorTab("validacion");

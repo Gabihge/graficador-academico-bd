@@ -67,8 +67,48 @@ version, fecha, revision del DER de origen.
 
 Severidades: `error` (bloquea transformacion/archivo valido), `warning`
 (permite continuar), `info` (sugerencia). Casos minimos de DER y MR listados
-en `docs/ESPECIFICACION_ORIGINAL.md` seccion 8 (se transcriben a fixtures de
-test en el Incremento 3, no antes).
+en `docs/ESPECIFICACION_ORIGINAL.md` seccion 8.
+
+### `RuleProfile` UNLaM v1.0.0 - reglas DER (Incremento 3)
+
+Implementado en `src/academic/profiles/unlam/`. Cada regla es un objeto
+(`id`, `version`, `category`, `source`, `explanation`, `severity`, `evaluate`);
+la precondicion vive dentro de `evaluate` (si no aplica devuelve `[]`). El
+slot de transformacion DER -> MR lo agrega el Incremento 4. `validateDer`
+(`src/features/validation`) corre este perfil y reemplaza a la "validacion
+estructural minima" del Incremento 2.
+
+| Regla | Categoria | Fuente | Severidad |
+|---|---|---|---|
+| `unlam.entity.name-required` | entidad | GENERAL | error |
+| `unlam.entity.name-unique` | entidad | PRODUCTO | warning |
+| `unlam.entity.regular-identifier-required` | entidad | CATEDRA | error |
+| `unlam.attribute.name-required` | atributo | GENERAL | error |
+| `unlam.attribute.name-unique-per-owner` | atributo | PRODUCTO | warning |
+| `unlam.attribute.composite-needs-components` | atributo | CATEDRA | error |
+| `unlam.attribute.non-composite-has-components` | atributo | GENERAL | warning |
+| `unlam.attribute.identifier-should-be-simple` | atributo | CATEDRA | warning |
+| `unlam.relationship.name-required` | relacion | GENERAL | error |
+| `unlam.relationship.participant-entity-exists` | relacion | GENERAL | error |
+| `unlam.relationship.degree-matches-participants` | relacion | CATEDRA | error |
+| `unlam.relationship.binary-ternary-distinct-entities` | relacion | CATEDRA | error |
+| `unlam.relationship.unary-roles-required` | relacion | CATEDRA | error |
+| `unlam.relationship.identifier-attribute-only-nn` | relacion | CATEDRA | warning |
+| `unlam.relationship.ternary-cardinality-note` | relacion | INFORMADA | info |
+| `unlam.weak-entity.identifying-relationship-required` | entidad-debil | CATEDRA | error |
+| `unlam.weak-entity.discriminator-required` | entidad-debil | CATEDRA | error |
+| `unlam.weak-entity.identifying-relationship-shape` | entidad-debil | CATEDRA | warning |
+| `unlam.relationship.identifying-requires-weak` | entidad-debil | CATEDRA | warning |
+| `unlam.hierarchy.super-required` | jerarquia | CATEDRA | error |
+| `unlam.hierarchy.subentities-required` | jerarquia | CATEDRA | error (0) / warning (1) |
+| `unlam.hierarchy.refs-exist` | jerarquia | GENERAL | error |
+| `unlam.hierarchy.super-not-sub` | jerarquia | GENERAL | error |
+| `unlam.hierarchy.discriminator-combination` | jerarquia | CATEDRA | error |
+| `unlam.hierarchy.discriminator-exists` | jerarquia | GENERAL | error |
+
+Excepciones a `entity.regular-identifier-required`: entidades debiles (se
+identifican por su entidad fuerte + discriminante) y subentidades de una
+jerarquia (heredan el identificador de la supraentidad).
 
 ## Presentacion academica del MR (perfil UNLaM)
 

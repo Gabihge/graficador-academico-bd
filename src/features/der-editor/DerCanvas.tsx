@@ -13,17 +13,20 @@ import {
   type OnSelectionChangeParams,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { validateStructure } from "@/features/validation";
+import { validateDer } from "@/features/validation";
 import { useDerEditorStore } from "@/state/derEditorStore";
 import type { ConceptualElementKind } from "@/domain/conceptual";
 import type { ToolId } from "@/components/shell/ToolRail";
 import { chenEdgeTypes, chenNodeTypes } from "./chen/registry";
-import { parseParticipationEdgeId, toFlowEdges, toFlowNodes } from "./projection";
+import {
+  parseHierarchyEdgeId,
+  parseParticipationEdgeId,
+  toFlowEdges,
+  toFlowNodes,
+} from "./projection";
 
 interface DerCanvasProps {
-  /** Herramienta activa de la tool rail (estado efimero de UI del shell). */
   activeTool: ToolId;
-  /** Se llama tras crear un elemento, para volver a la herramienta "select". */
   onToolConsumed: () => void;
 }
 
@@ -41,7 +44,14 @@ export function DerCanvas(props: DerCanvasProps) {
 }
 
 function nodeKind(type: string | undefined): ConceptualElementKind | null {
-  if (type === "entity" || type === "relationship" || type === "attribute") return type;
+  if (
+    type === "entity" ||
+    type === "relationship" ||
+    type === "attribute" ||
+    type === "hierarchy"
+  ) {
+    return type;
+  }
   return null;
 }
 
@@ -53,9 +63,13 @@ function DerCanvasInner({ activeTool, onToolConsumed }: DerCanvasProps) {
 
   const addEntity = useDerEditorStore((s) => s.addEntity);
   const addRelationship = useDerEditorStore((s) => s.addRelationship);
+  const addHierarchy = useDerEditorStore((s) => s.addHierarchy);
   const addAttributeTo = useDerEditorStore((s) => s.addAttributeTo);
   const connect = useDerEditorStore((s) => s.connect);
   const disconnect = useDerEditorStore((s) => s.disconnect);
+  const connectHierarchy = useDerEditorStore((s) => s.connectHierarchy);
+  const setHierarchySuper = useDerEditorStore((s) => s.setHierarchySuper);
+  const removeHierarchySub = useDerEditorStore((s) => s.removeHierarchySub);
   const moveNode = useDerEditorStore((s) => s.moveNode);
   const beginInteraction = useDerEditorStore((s) => s.beginInteraction);
   const endInteraction = useDerEditorStore((s) => s.endInteraction);
@@ -66,8 +80,8 @@ function DerCanvasInner({ activeTool, onToolConsumed }: DerCanvasProps) {
 
   const invalidIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const issue of validateStructure(model)) {
-      if (issue.severity === "error" && issue.targetId) ids.add(issue.targetId);
+    for (const issue of validateDer(model)) {
+      if (issue.severity === "error") for (const id of issue.elementIds) ids.add(id);
     }
     return ids;
   }, [model]);
@@ -96,24 +110,36 @@ function DerCanvasInner({ activeTool, onToolConsumed }: DerCanvasProps) {
     (changes: EdgeChange[]) => {
       for (const change of changes) {
         if (change.type !== "remove") continue;
-        const parsed = parseParticipationEdgeId(change.id);
-        if (parsed) disconnect(parsed.relationshipId, parsed.entityId);
+        const participation = parseParticipationEdgeId(change.id);
+        if (participation) {
+          disconnect(participation.relationshipId, participation.participantId);
+          continue;
+        }
+        const hierarchy = parseHierarchyEdgeId(change.id);
+        if (hierarchy) {
+          if (hierarchy.role === "super") setHierarchySuper(hierarchy.hierarchyId, "");
+          else removeHierarchySub(hierarchy.hierarchyId, hierarchy.entityId);
+        }
       }
     },
-    [disconnect],
+    [disconnect, setHierarchySuper, removeHierarchySub],
   );
 
   const onConnect = useCallback(
     (connection: Connection) => {
       const sourceKind = nodeKind(nodes.find((n) => n.id === connection.source)?.type);
       const targetKind = nodeKind(nodes.find((n) => n.id === connection.target)?.type);
-      if (sourceKind === "relationship" && targetKind === "entity") {
-        connect(connection.source, connection.target);
-      } else if (sourceKind === "entity" && targetKind === "relationship") {
-        connect(connection.target, connection.source);
+      const pair = new Set([sourceKind, targetKind]);
+      const idOf = (kind: ConceptualElementKind) =>
+        sourceKind === kind ? connection.source : connection.target;
+
+      if (pair.has("relationship") && pair.has("entity")) {
+        connect(idOf("relationship"), idOf("entity"));
+      } else if (pair.has("hierarchy") && pair.has("entity")) {
+        connectHierarchy(idOf("hierarchy"), idOf("entity"));
       }
     },
-    [nodes, connect],
+    [nodes, connect, connectHierarchy],
   );
 
   const onSelectionChange = useCallback(
@@ -128,9 +154,14 @@ function DerCanvasInner({ activeTool, onToolConsumed }: DerCanvasProps) {
       }
       const edge = selectedEdges[0];
       if (edge) {
-        const parsed = parseParticipationEdgeId(edge.id);
-        if (parsed) {
-          select({ kind: "relationship", id: parsed.relationshipId });
+        const participation = parseParticipationEdgeId(edge.id);
+        if (participation) {
+          select({ kind: "relationship", id: participation.relationshipId });
+          return;
+        }
+        const hierarchy = parseHierarchyEdgeId(edge.id);
+        if (hierarchy) {
+          select({ kind: "hierarchy", id: hierarchy.hierarchyId });
           return;
         }
       }
@@ -141,13 +172,16 @@ function DerCanvasInner({ activeTool, onToolConsumed }: DerCanvasProps) {
 
   const onPaneClick = useCallback(
     (event: React.MouseEvent) => {
-      if (activeTool !== "entity" && activeTool !== "relationship") return;
+      if (activeTool !== "entity" && activeTool !== "relationship" && activeTool !== "hierarchy") {
+        return;
+      }
       const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
       if (activeTool === "entity") addEntity(position);
-      else addRelationship(position);
+      else if (activeTool === "relationship") addRelationship(position);
+      else addHierarchy(position);
       onToolConsumed();
     },
-    [activeTool, screenToFlowPosition, addEntity, addRelationship, onToolConsumed],
+    [activeTool, screenToFlowPosition, addEntity, addRelationship, addHierarchy, onToolConsumed],
   );
 
   const onNodeClick = useCallback(
@@ -161,8 +195,12 @@ function DerCanvasInner({ activeTool, onToolConsumed }: DerCanvasProps) {
     [activeTool, addAttributeTo, onToolConsumed],
   );
 
-  const toolActive = activeTool === "entity" || activeTool === "relationship";
-  const isEmpty = model.entities.length === 0 && model.relationships.length === 0;
+  const toolActive =
+    activeTool === "entity" || activeTool === "relationship" || activeTool === "hierarchy";
+  const isEmpty =
+    model.entities.length === 0 &&
+    model.relationships.length === 0 &&
+    model.hierarchies.length === 0;
 
   return (
     <div className="absolute inset-0" data-testid="der-canvas">
@@ -194,8 +232,10 @@ function DerCanvasInner({ activeTool, onToolConsumed }: DerCanvasProps) {
       {status === "ready" && isEmpty && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <p className="max-w-xs rounded-lg border border-neutral-200 bg-white/80 px-4 py-3 text-center text-xs text-neutral-500 shadow-sm backdrop-blur-md">
-            Elegi la herramienta <span className="font-semibold">Entidad</span> en la barra
-            izquierda y hace clic en el lienzo para empezar el DER.
+            Elegi una herramienta (<span className="font-semibold">Entidad</span>,{" "}
+            <span className="font-semibold">Relacion</span> o{" "}
+            <span className="font-semibold">Jerarquia</span>) en la barra izquierda y hace clic en
+            el lienzo para empezar el DER.
           </p>
         </div>
       )}

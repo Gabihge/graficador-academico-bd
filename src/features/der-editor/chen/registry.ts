@@ -6,12 +6,14 @@ import type { EdgeTypes, NodeTypes } from "@xyflow/react";
 import { EntityNode } from "./EntityNode";
 import { RelationshipNode } from "./RelationshipNode";
 import { AttributeNode } from "./AttributeNode";
+import { HierarchyNode } from "./HierarchyNode";
 import { ParticipationEdge } from "./ParticipationEdge";
 
 export const chenNodeTypes: NodeTypes = {
   entity: EntityNode,
   relationship: RelationshipNode,
   attribute: AttributeNode,
+  hierarchy: HierarchyNode,
 };
 
 export const chenEdgeTypes: EdgeTypes = {

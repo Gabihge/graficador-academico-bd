@@ -3,12 +3,14 @@ import type {
   CardinalityBound,
   ConceptualModel,
   Participation,
+  RelationshipDegree,
 } from "@/domain/conceptual";
-import { findAttributeOwner } from "@/domain/conceptual";
+import { expectedParticipantCount, findAttribute } from "@/domain/conceptual";
 import { useDerEditorStore, type DerSelection } from "@/state/derEditorStore";
 import { secondaryButton, textInput } from "@/components/ui/buttonStyles";
 import { InlineTextField } from "./InlineTextField";
 import { AttributeList } from "./AttributeList";
+import { HierarchyPanel } from "./HierarchyPanel";
 
 /** Pestana "Propiedades" del Inspector: contextual segun la seleccion del canvas. */
 export function PropertiesTab() {
@@ -20,7 +22,7 @@ export function PropertiesTab() {
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
         <MousePointerClick size={22} className="text-neutral-300" aria-hidden />
         <p className="text-xs text-neutral-400">
-          Selecciona una entidad, relacion o atributo del canvas para ver y editar sus
+          Selecciona una entidad, relacion, atributo o jerarquia del canvas para ver y editar sus
           propiedades.
         </p>
       </div>
@@ -43,48 +45,95 @@ function SelectionPanel({
 }) {
   if (selection.kind === "entity") {
     const entity = model.entities.find((e) => e.id === selection.id);
-    if (!entity) return <MissingElement />;
-    return <EntityPanel key={entity.id} entityId={entity.id} model={model} />;
+    return entity ? <EntityPanel key={entity.id} entityId={entity.id} model={model} /> : <MissingElement />;
   }
   if (selection.kind === "relationship") {
     const relationship = model.relationships.find((r) => r.id === selection.id);
-    if (!relationship) return <MissingElement />;
-    return <RelationshipPanel key={relationship.id} relationshipId={relationship.id} model={model} />;
+    return relationship ? (
+      <RelationshipPanel key={relationship.id} relationshipId={relationship.id} model={model} />
+    ) : (
+      <MissingElement />
+    );
   }
-  const owner = findAttributeOwner(model, selection.id);
-  if (!owner) return <MissingElement />;
-  return <AttributePanel key={selection.id} attributeId={selection.id} model={model} />;
-}
-
-function MissingElement() {
-  return (
-    <p className="text-xs text-neutral-400">El elemento seleccionado ya no existe.</p>
+  if (selection.kind === "hierarchy") {
+    const hierarchy = model.hierarchies.find((h) => h.id === selection.id);
+    return hierarchy ? (
+      <HierarchyPanel key={hierarchy.id} hierarchyId={hierarchy.id} model={model} />
+    ) : (
+      <MissingElement />
+    );
+  }
+  return findAttribute(model, selection.id) ? (
+    <AttributePanel key={selection.id} attributeId={selection.id} model={model} />
+  ) : (
+    <MissingElement />
   );
 }
 
-// --- Entidad ----------------------------------------------------------
+function MissingElement() {
+  return <p className="text-xs text-neutral-400">El elemento seleccionado ya no existe.</p>;
+}
+
+function PanelTitle({ children }: { children: string }) {
+  return (
+    <p className="text-[11px] font-semibold tracking-wide text-neutral-400 uppercase">{children}</p>
+  );
+}
+
+// --- Entidad --------------------------------------------------------------
 
 function EntityPanel({ entityId, model }: { entityId: string; model: ConceptualModel }) {
   const entity = model.entities.find((e) => e.id === entityId)!;
   const renameElement = useDerEditorStore((s) => s.renameElement);
+  const setEntityKind = useDerEditorStore((s) => s.setEntityKind);
   const deleteElement = useDerEditorStore((s) => s.deleteElement);
+  const isWeak = entity.kind === "weak";
 
   return (
     <div className="space-y-4">
-      <p className="text-[11px] font-semibold tracking-wide text-neutral-400 uppercase">
-        Entidad
-      </p>
+      <PanelTitle>Entidad</PanelTitle>
       <InlineTextField
         label="Nombre"
         value={entity.name}
         onCommit={(value) => renameElement("entity", entity.id, value)}
       />
+
+      <div
+        className="flex rounded-lg border border-neutral-200 bg-white/60 p-0.5 text-xs font-medium"
+        role="group"
+        aria-label="Tipo de entidad"
+      >
+        {(["regular", "weak"] as const).map((kind) => (
+          <button
+            key={kind}
+            type="button"
+            aria-pressed={entity.kind === kind}
+            onClick={() => setEntityKind(entity.id, kind)}
+            className={`flex-1 rounded-md px-2 py-1 transition-colors ${
+              entity.kind === kind
+                ? "bg-neutral-800 text-white"
+                : "text-neutral-500 hover:text-neutral-800"
+            }`}
+          >
+            {kind === "regular" ? "Regular" : "Debil"}
+          </button>
+        ))}
+      </div>
+      {isWeak && (
+        <p className="rounded-md border border-dashed border-neutral-300 bg-neutral-50 px-2 py-2 text-[11px] text-neutral-500">
+          Una entidad debil necesita un atributo <strong>discriminante</strong> y participar en una
+          relacion marcada como <strong>identificadora</strong> hacia su entidad fuerte.
+        </p>
+      )}
+
       <AttributeList
         ownerKind="entity"
         ownerId={entity.id}
         attributes={entity.attributes}
         allowIdentifier
+        allowDiscriminator={isWeak}
       />
+
       <button
         type="button"
         className={`${secondaryButton} w-full text-red-600`}
@@ -97,7 +146,13 @@ function EntityPanel({ entityId, model }: { entityId: string; model: ConceptualM
   );
 }
 
-// --- Relacion -------------------------------------------------------
+// --- Relacion -----------------------------------------------------------
+
+const DEGREE_OPTIONS: { value: RelationshipDegree; label: string }[] = [
+  { value: 1, label: "Unaria" },
+  { value: 2, label: "Binaria" },
+  { value: 3, label: "Ternaria" },
+];
 
 function RelationshipPanel({
   relationshipId,
@@ -110,60 +165,113 @@ function RelationshipPanel({
   const renameElement = useDerEditorStore((s) => s.renameElement);
   const deleteElement = useDerEditorStore((s) => s.deleteElement);
   const disconnect = useDerEditorStore((s) => s.disconnect);
-  const setEndCardinality = useDerEditorStore((s) => s.setEndCardinality);
-  const setEndParticipation = useDerEditorStore((s) => s.setEndParticipation);
+  const setRelationshipDegree = useDerEditorStore((s) => s.setRelationshipDegree);
+  const setRelationshipIdentifying = useDerEditorStore((s) => s.setRelationshipIdentifying);
+  const setParticipantCardinality = useDerEditorStore((s) => s.setParticipantCardinality);
+  const setParticipantParticipation = useDerEditorStore((s) => s.setParticipantParticipation);
+  const setParticipantRole = useDerEditorStore((s) => s.setParticipantRole);
 
-  const missing = 2 - relationship.ends.length;
+  const expected = expectedParticipantCount(relationship.degree);
+  const missing = expected - relationship.participants.length;
+  const isUnary = relationship.degree === 1;
 
   return (
     <div className="space-y-4">
-      <p className="text-[11px] font-semibold tracking-wide text-neutral-400 uppercase">
-        Relacion
-      </p>
+      <PanelTitle>Relacion</PanelTitle>
       <InlineTextField
         label="Nombre"
         value={relationship.name}
         onCommit={(value) => renameElement("relationship", relationship.id, value)}
       />
 
+      <div className="grid grid-cols-2 gap-2">
+        <label className="text-[11px] text-neutral-500">
+          Grado
+          <select
+            className={`${textInput} mt-0.5 py-1 text-xs`}
+            value={relationship.degree}
+            onChange={(event) =>
+              setRelationshipDegree(
+                relationship.id,
+                Number(event.target.value) as RelationshipDegree,
+              )
+            }
+          >
+            {DEGREE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="mt-4 flex items-center gap-1.5 text-[11px] text-neutral-600">
+          <input
+            type="checkbox"
+            checked={relationship.identifying === true}
+            onChange={(event) =>
+              setRelationshipIdentifying(relationship.id, event.target.checked)
+            }
+          />
+          Identificadora (entidad debil)
+        </label>
+      </div>
+
       <section>
         <span className="mb-1.5 block text-xs font-medium text-neutral-600">
-          Extremos (cardinalidad y participacion)
+          {isUnary ? "Extremos (roles, cardinalidad, participacion)" : "Participantes"}
         </span>
         {missing > 0 && (
           <p className="mb-2 rounded-md border border-dashed border-amber-300 bg-amber-50 px-2 py-2 text-xs text-amber-700">
-            Faltan {missing} extremo{missing > 1 ? "s" : ""}. Arrastra desde el rombo hasta una
-            entidad para conectarla.
+            Faltan {missing} {missing > 1 ? "participantes" : "participante"} para el grado{" "}
+            {relationship.degree}. {isUnary ? "En una unaria se conecta dos veces la misma entidad." : "Arrastra desde el rombo hasta una entidad."}
           </p>
         )}
         <ul className="space-y-2">
-          {relationship.ends.map((end) => {
-            const entity = model.entities.find((e) => e.id === end.entityId);
+          {relationship.participants.map((participant, index) => {
+            const entity = model.entities.find((e) => e.id === participant.entityId);
             return (
-              <li key={end.entityId} className="rounded-md border border-neutral-200 p-2">
+              <li key={participant.id} className="rounded-md border border-neutral-200 p-2">
                 <div className="mb-1.5 flex items-center justify-between">
                   <span className="truncate text-xs font-medium text-neutral-700">
                     {entity?.name ?? "Entidad inexistente"}
+                    {isUnary ? ` · extremo ${index + 1}` : ""}
                   </span>
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 text-xs text-neutral-400 hover:text-red-600"
-                    onClick={() => disconnect(relationship.id, end.entityId)}
+                    onClick={() => disconnect(relationship.id, participant.id)}
                   >
                     <Unlink size={12} aria-hidden />
-                    Desconectar
+                    Quitar
                   </button>
                 </div>
+
+                {(isUnary || participant.role) && (
+                  <input
+                    key={`${participant.id}:${participant.role ?? ""}`}
+                    className={`${textInput} mb-2 py-1 text-xs`}
+                    placeholder="Rol (ej. jefe / subordinado)"
+                    aria-label="Rol del participante"
+                    defaultValue={participant.role ?? ""}
+                    onBlur={(event) =>
+                      setParticipantRole(relationship.id, participant.id, event.target.value)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") event.currentTarget.blur();
+                    }}
+                  />
+                )}
+
                 <div className="grid grid-cols-2 gap-2">
                   <label className="text-[11px] text-neutral-500">
                     Cardinalidad
                     <select
                       className={`${textInput} mt-0.5 py-1 text-xs`}
-                      value={end.cardinality}
+                      value={participant.cardinality}
                       onChange={(event) =>
-                        setEndCardinality(
+                        setParticipantCardinality(
                           relationship.id,
-                          end.entityId,
+                          participant.id,
                           event.target.value as CardinalityBound,
                         )
                       }
@@ -176,11 +284,11 @@ function RelationshipPanel({
                     Participacion
                     <select
                       className={`${textInput} mt-0.5 py-1 text-xs`}
-                      value={end.participation}
+                      value={participant.participation}
                       onChange={(event) =>
-                        setEndParticipation(
+                        setParticipantParticipation(
                           relationship.id,
-                          end.entityId,
+                          participant.id,
                           event.target.value as Participation,
                         )
                       }
@@ -200,7 +308,8 @@ function RelationshipPanel({
         ownerKind="relationship"
         ownerId={relationship.id}
         attributes={relationship.attributes}
-        allowIdentifier={false}
+        allowIdentifier
+        allowDiscriminator={false}
       />
 
       <button
@@ -215,35 +324,46 @@ function RelationshipPanel({
   );
 }
 
-// --- Atributo -----------------------------------------------------
+// --- Atributo -----------------------------------------------------------
 
 function AttributePanel({ attributeId, model }: { attributeId: string; model: ConceptualModel }) {
-  const owner = findAttributeOwner(model, attributeId)!;
-  const ownerObject =
-    owner.kind === "entity"
-      ? model.entities.find((e) => e.id === owner.id)
-      : model.relationships.find((r) => r.id === owner.id);
-  const attribute = ownerObject?.attributes.find((a) => a.id === attributeId);
+  const location = findAttribute(model, attributeId)!;
+  const { attribute, ownerKind, ownerId, parentAttributeId } = location;
+  const ownerEntity =
+    ownerKind === "entity" ? model.entities.find((e) => e.id === ownerId) : undefined;
+  const ownerRelationship =
+    ownerKind === "relationship"
+      ? model.relationships.find((r) => r.id === ownerId)
+      : undefined;
+  const ownerName = ownerEntity?.name ?? ownerRelationship?.name ?? "(desconocido)";
+  const ownerIsWeakEntity = ownerEntity?.kind === "weak";
+
   const renameElement = useDerEditorStore((s) => s.renameElement);
+  const setAttributeKind = useDerEditorStore((s) => s.setAttributeKind);
   const setAttributeIdentifier = useDerEditorStore((s) => s.setAttributeIdentifier);
+  const setAttributeDiscriminator = useDerEditorStore((s) => s.setAttributeDiscriminator);
   const deleteElement = useDerEditorStore((s) => s.deleteElement);
   const select = useDerEditorStore((s) => s.select);
 
-  if (!attribute) return <MissingElement />;
+  const isComponent = Boolean(parentAttributeId);
 
   return (
     <div className="space-y-4">
-      <p className="text-[11px] font-semibold tracking-wide text-neutral-400 uppercase">
-        Atributo
-      </p>
+      <PanelTitle>{isComponent ? "Componente" : "Atributo"}</PanelTitle>
       <p className="text-xs text-neutral-500">
         Pertenece a{" "}
         <button
           type="button"
           className="font-medium text-neutral-700 underline underline-offset-2"
-          onClick={() => select({ kind: owner.kind, id: owner.id })}
+          onClick={() =>
+            parentAttributeId
+              ? select({ kind: "attribute", id: parentAttributeId })
+              : select({ kind: ownerKind, id: ownerId })
+          }
         >
-          {ownerObject?.name ?? "(desconocido)"}
+          {parentAttributeId
+            ? "su atributo compuesto"
+            : ownerName}
         </button>
       </p>
       <InlineTextField
@@ -251,27 +371,52 @@ function AttributePanel({ attributeId, model }: { attributeId: string; model: Co
         value={attribute.name}
         onCommit={(value) => renameElement("attribute", attribute.id, value)}
       />
-      {owner.kind === "entity" ? (
+
+      {!isComponent && (
+        <label className="block text-xs text-neutral-600">
+          Tipo de atributo
+          <select
+            className={`${textInput} mt-1 py-1 text-xs`}
+            value={attribute.kind}
+            onChange={(event) =>
+              setAttributeKind(attribute.id, event.target.value as typeof attribute.kind)
+            }
+          >
+            <option value="simple">Simple</option>
+            <option value="composite">Compuesto</option>
+            <option value="multivalued">Multivaluado</option>
+            <option value="derived">Derivado / calculado</option>
+          </select>
+        </label>
+      )}
+
+      <label className="flex items-center gap-2 text-xs text-neutral-600">
+        <input
+          type="checkbox"
+          checked={attribute.isIdentifier}
+          onChange={(event) => setAttributeIdentifier(attribute.id, event.target.checked)}
+        />
+        Integra el identificador (se subraya en Chen)
+      </label>
+
+      {ownerIsWeakEntity && !isComponent && (
         <label className="flex items-center gap-2 text-xs text-neutral-600">
           <input
             type="checkbox"
-            checked={attribute.isIdentifier}
-            onChange={(event) => setAttributeIdentifier(attribute.id, event.target.checked)}
+            checked={attribute.isDiscriminator === true}
+            onChange={(event) => setAttributeDiscriminator(attribute.id, event.target.checked)}
           />
-          Integra el identificador de la entidad (se subraya en Chen)
+          Es discriminante de la entidad debil
         </label>
-      ) : (
-        <p className="text-xs text-neutral-400">
-          Los atributos de relacion no forman identificador en el Incremento 2.
-        </p>
       )}
+
       <button
         type="button"
         className={`${secondaryButton} w-full text-red-600`}
         onClick={() => deleteElement("attribute", attribute.id)}
       >
         <Trash2 size={14} aria-hidden />
-        Eliminar atributo
+        Eliminar {isComponent ? "componente" : "atributo"}
       </button>
     </div>
   );

@@ -5,7 +5,7 @@ import {
   flushDerEditorPersistence,
   useDerEditorStore,
 } from "@/state/derEditorStore";
-import { isStructurallyValid } from "@/features/validation";
+import { isDerValid, validateDer } from "@/features/validation";
 
 async function clearDatabase() {
   await Promise.all([
@@ -31,52 +31,73 @@ beforeEach(async () => {
   useDerEditorStore.getState().clear();
 });
 
-describe("editor DER: dibujar y validar un DER binario de punta a punta (gate Incremento 2)", () => {
-  it("construye un DER binario valido, lo persiste y lo recupera tras recargar", async () => {
-    // Documento DER real en el espacio de trabajo.
+describe("editor DER: construir un DER academicamente valido y recuperarlo", () => {
+  it("entidad debil + jerarquia por el store, persistidas y recargadas sin perder validez", async () => {
     await useWorkspaceStore.getState().init();
     await useWorkspaceStore.getState().createProject("Bases de Datos 3636");
-    const doc = await useWorkspaceStore.getState().createDocument(null, "DER sucursales", "der");
+    const doc = await useWorkspaceStore.getState().createDocument(null, "DER avanzado", "der");
 
     const der = useDerEditorStore.getState();
     await der.load(doc.id);
     expect(useDerEditorStore.getState().status).toBe("ready");
 
-    // Dos entidades, cada una con un identificador.
-    const clienteId = der.addEntity({ x: 0, y: 0 });
-    const sucursalId = der.addEntity({ x: 300, y: 0 });
-    const dniId = der.addAttributeTo("entity", clienteId)!;
-    der.setAttributeIdentifier(dniId, true);
-    const codigoId = der.addAttributeTo("entity", sucursalId)!;
+    // Entidad fuerte con identificador.
+    const edificioId = der.addEntity({ x: 0, y: 0 });
+    der.renameElement("entity", edificioId, "Edificio");
+    const codigoId = der.addAttributeTo("entity", edificioId)!;
     der.setAttributeIdentifier(codigoId, true);
 
-    // Relacion binaria que conecta ambas entidades.
+    // Entidad debil con discriminante.
+    const deptoId = der.addEntity({ x: 300, y: 0 });
+    der.renameElement("entity", deptoId, "Departamento");
+    der.setEntityKind(deptoId, "weak");
+    const nroId = der.addAttributeTo("entity", deptoId)!;
+    der.setAttributeDiscriminator(nroId, true);
+
+    // Relacion identificadora binaria.
     const relId = der.addRelationship({ x: 150, y: 150 });
-    der.connect(relId, clienteId);
-    der.connect(relId, sucursalId);
-    der.setEndCardinality(relId, clienteId, "1");
-    der.setEndParticipation(relId, clienteId, "total");
-    der.setEndCardinality(relId, sucursalId, "N");
+    der.renameElement("relationship", relId, "Contiene");
+    der.setRelationshipIdentifying(relId, true);
+    der.connect(relId, deptoId);
+    der.connect(relId, edificioId);
+    const [weakPart, strongPart] = useDerEditorStore.getState().model.relationships[0]!.participants;
+    der.setParticipantParticipation(relId, weakPart!.id, "total");
+    der.setParticipantCardinality(relId, weakPart!.id, "N");
+    der.setParticipantCardinality(relId, strongPart!.id, "1");
+
+    // Jerarquia total-exclusiva con dos subentidades.
+    const superId = der.addEntity({ x: 0, y: 400 });
+    der.renameElement("entity", superId, "Vehiculo");
+    der.setAttributeIdentifier(der.addAttributeTo("entity", superId)!, true);
+    const autoId = der.addEntity({ x: 200, y: 400 });
+    const motoId = der.addEntity({ x: 400, y: 400 });
+    const hierId = der.addHierarchy({ x: 200, y: 550 });
+    der.connectHierarchy(hierId, superId);
+    der.connectHierarchy(hierId, autoId);
+    der.connectHierarchy(hierId, motoId);
+    der.setHierarchyPartition(hierId, "total");
+    der.setHierarchyOverlap(hierId, "exclusive");
 
     const model = useDerEditorStore.getState().model;
-    expect(model.entities).toHaveLength(2);
-    expect(model.relationships[0]?.ends).toHaveLength(2);
-    expect(isStructurallyValid(model)).toBe(true);
+    expect(model.entities).toHaveLength(5);
+    expect(model.hierarchies[0]?.subEntityIds).toHaveLength(2);
+    expect(model.relationships[0]?.identifying).toBe(true);
+    expect(
+      validateDer(model).filter((i) => i.severity === "error"),
+      "esperaba DER academicamente valido",
+    ).toEqual([]);
+    expect(model.revision).toBeGreaterThan(0);
 
-    // Cierre total del editor y recarga contra el mismo IndexedDB.
+    // Recarga contra el mismo IndexedDB.
     await flushDerEditorPersistence();
     useDerEditorStore.getState().clear();
     await useDerEditorStore.getState().load(doc.id);
 
-    const reloaded = useDerEditorStore.getState();
-    expect(reloaded.model.entities.map((e) => e.name).sort()).toEqual(["Entidad", "Entidad"]);
-    expect(reloaded.model.entities.flatMap((e) => e.attributes).filter((a) => a.isIdentifier)).toHaveLength(2);
-    expect(reloaded.model.relationships[0]?.ends).toHaveLength(2);
-    const clienteEnd = reloaded.model.relationships[0]?.ends.find((e) => e.entityId === clienteId);
-    expect(clienteEnd).toMatchObject({ cardinality: "1", participation: "total" });
-    // El layout tambien persiste (posiciones de los nodos).
-    expect(reloaded.layout.positions[clienteId]).toEqual({ x: 0, y: 0 });
-    expect(isStructurallyValid(reloaded.model)).toBe(true);
+    const reloaded = useDerEditorStore.getState().model;
+    expect(reloaded.entities.find((e) => e.id === deptoId)?.kind).toBe("weak");
+    expect(reloaded.hierarchies[0]?.partition).toBe("total");
+    expect(reloaded.relationships[0]?.participants).toHaveLength(2);
+    expect(isDerValid(reloaded)).toBe(true);
   });
 
   it("elimina el contenido DER cuando se borra el documento", async () => {
@@ -91,6 +112,31 @@ describe("editor DER: dibujar y validar un DER binario de punta a punta (gate In
 
     await useWorkspaceStore.getState().deleteDocument(doc.id);
     expect(await db.derDocuments.get(doc.id)).toBeUndefined();
+  });
+
+  it("migra una fila con la forma del Incremento 2 al abrirla", async () => {
+    await db.derDocuments.put({
+      documentId: "legacy-doc",
+      model: {
+        entities: [{ id: "e1", name: "Cliente", attributes: [] }],
+        relationships: [
+          {
+            id: "r1",
+            name: "R",
+            ends: [{ entityId: "e1", cardinality: "N", participation: "partial" }],
+            attributes: [],
+          },
+        ],
+      },
+      layout: { positions: {} },
+      updatedAt: new Date().toISOString(),
+    } as never);
+
+    await useDerEditorStore.getState().load("legacy-doc");
+    const model = useDerEditorStore.getState().model;
+    expect(model.entities[0]?.kind).toBe("regular");
+    expect(model.relationships[0]?.participants[0]?.entityId).toBe("e1");
+    expect(model.hierarchies).toEqual([]);
   });
 });
 

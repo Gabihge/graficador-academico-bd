@@ -1,47 +1,64 @@
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { ATTRIBUTE_SIZE, CHEN_COLORS } from "./shapes";
+import type { AttributeKind } from "@/domain/conceptual";
+import { ATTRIBUTE_SIZE, CHEN_COLORS, HANDLE_STYLE } from "./shapes";
 
 export interface AttributeNodeData {
   name: string;
+  attrKind: AttributeKind;
   isIdentifier: boolean;
+  isDiscriminator: boolean;
   invalid: boolean;
   [key: string]: unknown;
 }
 
+const KIND_TITLE: Record<AttributeKind, string> = {
+  simple: "Atributo simple",
+  composite: "Atributo compuesto (agrupador de componentes)",
+  multivalued: "Atributo multivaluado (doble ovalo)",
+  derived: "Atributo derivado / calculado (linea punteada)",
+};
+
 /**
- * Atributo en notacion Chen: ovalo conectado por una linea a su dueno. El
- * identificador se dibuja subrayado, pero esa es solo la representacion: la
- * verdad (`isIdentifier`) vive en el modelo de dominio.
+ * Atributo en notacion Chen: ovalo conectado por una linea a su dueno.
+ * - identificador -> subrayado;
+ * - discriminante de entidad debil -> subrayado punteado;
+ * - multivaluado -> doble ovalo;
+ * - derivado -> borde punteado;
+ * - compuesto -> ovalo agrupador (sus componentes son nodos aparte).
+ * Todo esto es representacion: la verdad vive en el modelo de dominio.
  */
 function AttributeNodeComponent({ data, selected }: NodeProps) {
-  const { name, isIdentifier, invalid } = data as AttributeNodeData;
+  const { name, attrKind, isIdentifier, isDiscriminator, invalid } = data as AttributeNodeData;
   const stroke = selected
     ? CHEN_COLORS.selectedStroke
     : invalid
       ? CHEN_COLORS.invalidStroke
       : CHEN_COLORS.stroke;
+  const borderStyle = attrKind === "derived" || invalid ? "dashed" : "solid";
+  const underline = isIdentifier ? "underline solid" : isDiscriminator ? "underline dashed" : "none";
 
   return (
     <div
       style={{
         width: ATTRIBUTE_SIZE.width,
         height: ATTRIBUTE_SIZE.height,
-        border: `${selected ? 2 : 1.5}px ${invalid ? "dashed" : "solid"} ${stroke}`,
+        border: `${selected ? 2 : 1.5}px ${borderStyle} ${stroke}`,
+        outline: attrKind === "multivalued" ? `1.5px solid ${stroke}` : undefined,
+        outlineOffset: attrKind === "multivalued" ? -5 : undefined,
         background: CHEN_COLORS.fill,
         color: CHEN_COLORS.text,
         borderRadius: ATTRIBUTE_SIZE.height,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: "4px 12px",
+        padding: "4px 14px",
         fontSize: 12,
         textAlign: "center",
       }}
       title={
-        isIdentifier
-          ? "Atributo identificador (integra la clave de la entidad)"
-          : undefined
+        KIND_TITLE[attrKind] +
+        (isIdentifier ? " · identificador" : isDiscriminator ? " · discriminante" : "")
       }
     >
       <span
@@ -49,20 +66,16 @@ function AttributeNodeComponent({ data, selected }: NodeProps) {
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
-          textDecoration: isIdentifier ? "underline" : "none",
+          textDecoration: underline,
           textUnderlineOffset: 3,
-          fontWeight: isIdentifier ? 600 : 400,
+          fontWeight: isIdentifier || isDiscriminator ? 600 : 400,
         }}
       >
         {name || "sin nombre"}
       </span>
-      {/* Un solo punto de conexion: la linea hacia el dueno. */}
-      <Handle
-        type="source"
-        position={Position.Top}
-        id="link"
-        style={{ width: 6, height: 6, background: CHEN_COLORS.stroke }}
-      />
+      {/* "link" -> linea hacia el dueno; "bottom" -> punto de anclaje de componentes. */}
+      <Handle type="source" position={Position.Top} id="link" style={{ ...HANDLE_STYLE, width: 6, height: 6 }} />
+      <Handle type="source" position={Position.Bottom} id="bottom" style={{ ...HANDLE_STYLE, width: 6, height: 6 }} />
     </div>
   );
 }

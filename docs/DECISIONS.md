@@ -162,3 +162,71 @@ decision, no reescribir las anteriores.
   Reconciliar al implementarlas.
 - El renombrado de elementos del DER es solo por el Inspector; evaluar edicion
   inline sobre el propio nodo del canvas mas adelante.
+
+## 2026-09-07 - DER avanzado + perfil UNLaM (Incremento 3)
+
+- **Modelo alineado a la forma canonica (spec 15.1)**: se refactorizo el
+  `ConceptualModel` del Incremento 2 (necesario: no podia expresar entidad
+  debil, ternarias ni jerarquias). `Relationship.ends` -> `participants` (con
+  `id` y `role?`); `Relationship.degree` (1|2|3) y `Relationship.identifying?`;
+  `Entity.kind: "regular" | "weak"`; `ConceptualAttribute` gana
+  `kind: "simple"|"composite"|"multivalued"|"derived"`, `components?`,
+  `isDiscriminator?`; `ConceptualModel` gana `hierarchies: Hierarchy[]` y
+  `revision: number`. Se prefirio alinear ahora, con la superficie chica, a
+  reconciliar en el Incremento 4.
+- **`degree` como aridad intencional**: se guarda (default 2) y la validacion
+  compara `participants` contra `degree`. La relacion unaria es `degree 1` con
+  **dos** participantes a la **misma** entidad y **roles distintos no vacios**
+  (spec 7.6); binaria/ternaria = `degree` participantes a entidades distintas.
+- **Atributo compuesto se dibuja en el canvas**: el ovalo agrupador con un
+  ovalo hijo por componente, unidos por linea (notacion Chen 6.2). Los
+  componentes se editan en el Inspector y tambien son nodos.
+- **La validacion academica reemplaza a la estructural**: `src/features/
+  validation` pasa a exponer `validateDer(model)`, que corre el `RuleProfile`
+  UNLaM completo (`src/academic`). El perfil incluye tanto reglas de
+  integridad de modelo (`source: "GENERAL"`, antes en `structural.ts`, ahora
+  borrado) como reglas de catedra (`CATEDRA` / `INFORMADA`). Ninguna regla
+  como `if` suelto.
+- **Reglas solo con `evaluate` (sin transformacion)**: `AcademicRule` en el
+  Incremento 3 solo valida. El slot de transformacion DER -> MR (spec 7) lo
+  agrega el Incremento 4 como tipo companero, sin tocar estas reglas. La
+  "precondicion" de la spec se resuelve dentro de `evaluate` (si no aplica
+  devuelve `[]`).
+- **Interpretacion del gate**: "fixtures seccion 26" para este incremento son
+  los items 1-22 (estructura DER + veredicto valido/invalido bajo el perfil).
+  Los items 23-28 (FK, PK+FK, round-trip DSL, comentarios, `.bdproj`) son de
+  los Incrementos 4-9. Sin transformacion DER -> MR.
+- **Excepcion de identificador para subentidades**: `entity.regular-identifier-
+  required` no dispara para entidades debiles ni para subentidades de una
+  jerarquia (heredan el identificador de la supraentidad).
+- **Migracion por normalizacion en la carga, no por version de Dexie**: el
+  keyPath de `derDocuments` no cambia; solo cambia la forma del valor.
+  `migrateConceptualModel(raw)` (dominio, idempotente) actualiza cualquier
+  forma vieja (`ends` -> `participants`, `kind` por defecto, `hierarchies: []`,
+  `revision: 0`) y se aplica en `derDocumentRepo.loadDerDocument`.
+- **`revision`** se incrementa en cada commit estructural del store (base de la
+  trazabilidad de transformacion del Incremento 4).
+- **Jerarquia por canvas**: la primera entidad conectada es la supraentidad;
+  las siguientes, subentidades (ajustable desde el Inspector). El discriminante
+  se limpia automaticamente si la combinacion particion/solapamiento deja de
+  admitirlo (solo total + exclusiva).
+- **El Inspector aparece al seleccionar** (spec 11.5): `AppShell` se suscribe
+  al `derEditorStore` y abre el panel cuando la seleccion pasa de vacia a un
+  elemento. La pestana "Estilo" del Inspector sigue pendiente (Incremento 8).
+- **Herramienta "Jerarquia" activada**; "Nota" sigue inerte (las notas son del
+  Incremento 8). Las variantes (entidad debil, tipo de atributo) se eligen en
+  el Inspector, no con un boton por subtipo (spec 11.3).
+
+### Pendientes detectados (revisar en incrementos futuros, NO se tocan ahora)
+
+- Transformacion DER -> MR y el slot `transform` de las reglas del perfil:
+  Incremento 4.
+- Multiseleccion, copiar/cortar/pegar, alinear/distribuir, auto-layout,
+  minimapa y la herramienta "Nota": Incremento 8 (spec 4.2 los lista pero el
+  gate del Incremento 3 no los pide).
+- `duplicateDocument` / `duplicateProject` / `cloneProject` siguen sin copiar
+  el `ConceptualModel` / `ViewLayout` (arrastrado del Incremento 2).
+- Layouts separados por notacion (spec 15.3): hoy hay un unico `ViewLayout`
+  por documento. Relevante recien con Crow's Foot (Incremento 10).
+- `ConceptualModel.notes` (spec 15.1): no se agrego todavia; llega con las
+  notas del Incremento 8.

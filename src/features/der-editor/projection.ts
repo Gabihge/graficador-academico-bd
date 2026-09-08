@@ -1,14 +1,13 @@
 // Proyeccion pura del ConceptualModel + ViewLayout a nodos y aristas de
-// React Flow. Es la contraparte del renderer: el modelo semantico entra,
-// la representacion Chen sale. No muta nada y no depende de React, asi que
-// se puede testear sin montar el canvas.
+// React Flow. El modelo semantico entra, la representacion Chen sale. No muta
+// nada y no depende de React: se puede testear sin montar el canvas.
 
 import type { Edge, Node } from "@xyflow/react";
-import type { ConceptualModel } from "@/domain/conceptual";
+import type { ConceptualAttribute, ConceptualModel } from "@/domain/conceptual";
 import type { ViewLayout } from "@/domain/view";
 import { CHEN_COLORS } from "./chen/shapes";
 
-const FALLBACK_STEP = 180;
+const FALLBACK_STEP = 190;
 
 function positionFor(
   layout: ViewLayout,
@@ -23,83 +22,128 @@ function positionFor(
   );
 }
 
-/** Nodos Chen: una entidad, una relacion y un ovalo por cada atributo. */
+interface ProjectionContext {
+  model: ConceptualModel;
+  layout: ViewLayout;
+  invalidIds: ReadonlySet<string>;
+  selectedId: string | null;
+  fallback: { next: number };
+}
+
+/** Nodos Chen: entidades, relaciones, jerarquias y un ovalo por cada atributo/componente. */
 export function toFlowNodes(
   model: ConceptualModel,
   layout: ViewLayout,
   invalidIds: ReadonlySet<string>,
   selectedId: string | null,
 ): Node[] {
+  const ctx: ProjectionContext = {
+    model,
+    layout,
+    invalidIds,
+    selectedId,
+    fallback: { next: 0 },
+  };
   const nodes: Node[] = [];
-  let fallback = 0;
 
   for (const entity of model.entities) {
     nodes.push({
       id: entity.id,
       type: "entity",
-      position: positionFor(layout, entity.id, fallback++),
+      position: positionFor(layout, entity.id, ctx.fallback.next++),
       selected: entity.id === selectedId,
-      data: { name: entity.name, invalid: invalidIds.has(entity.id) },
+      data: {
+        name: entity.name,
+        weak: entity.kind === "weak",
+        invalid: invalidIds.has(entity.id),
+      },
     });
-    for (const attribute of entity.attributes) {
-      nodes.push({
-        id: attribute.id,
-        type: "attribute",
-        position: positionFor(layout, attribute.id, fallback++),
-        selected: attribute.id === selectedId,
-        data: {
-          name: attribute.name,
-          isIdentifier: attribute.isIdentifier,
-          invalid: invalidIds.has(attribute.id),
-        },
-      });
-    }
+    pushAttributeNodes(entity.attributes, ctx, nodes);
   }
 
   for (const relationship of model.relationships) {
     nodes.push({
       id: relationship.id,
       type: "relationship",
-      position: positionFor(layout, relationship.id, fallback++),
+      position: positionFor(layout, relationship.id, ctx.fallback.next++),
       selected: relationship.id === selectedId,
-      data: { name: relationship.name, invalid: invalidIds.has(relationship.id) },
+      data: {
+        name: relationship.name,
+        identifying: relationship.identifying === true,
+        degree: relationship.degree,
+        invalid: invalidIds.has(relationship.id),
+      },
     });
-    for (const attribute of relationship.attributes) {
-      nodes.push({
-        id: attribute.id,
-        type: "attribute",
-        position: positionFor(layout, attribute.id, fallback++),
-        selected: attribute.id === selectedId,
-        data: {
-          name: attribute.name,
-          isIdentifier: attribute.isIdentifier,
-          invalid: invalidIds.has(attribute.id),
-        },
-      });
-    }
+    pushAttributeNodes(relationship.attributes, ctx, nodes);
+  }
+
+  for (const hierarchy of model.hierarchies) {
+    nodes.push({
+      id: hierarchy.id,
+      type: "hierarchy",
+      position: positionFor(layout, hierarchy.id, ctx.fallback.next++),
+      selected: hierarchy.id === selectedId,
+      data: {
+        name: hierarchy.name,
+        partition: hierarchy.partition,
+        overlap: hierarchy.overlap,
+        invalid: invalidIds.has(hierarchy.id),
+      },
+    });
   }
 
   return nodes;
 }
 
-/** Id de la arista de participacion entre una relacion y una entidad. */
-export function participationEdgeId(relationshipId: string, entityId: string): string {
-  return `part:${relationshipId}:${entityId}`;
+function pushAttributeNodes(
+  attributes: ConceptualAttribute[],
+  ctx: ProjectionContext,
+  nodes: Node[],
+): void {
+  for (const attribute of attributes) {
+    nodes.push({
+      id: attribute.id,
+      type: "attribute",
+      position: positionFor(ctx.layout, attribute.id, ctx.fallback.next++),
+      selected: attribute.id === ctx.selectedId,
+      data: {
+        name: attribute.name,
+        attrKind: attribute.kind,
+        isIdentifier: attribute.isIdentifier,
+        isDiscriminator: attribute.isDiscriminator === true,
+        invalid: ctx.invalidIds.has(attribute.id),
+      },
+    });
+    if (attribute.components) pushAttributeNodes(attribute.components, ctx, nodes);
+  }
 }
 
-/** Descompone el id de una arista de participacion, o null si no lo es. */
+// --- ids de aristas -------------------------------------------------
+
+export function participationEdgeId(relationshipId: string, participantId: string): string {
+  return `part:${relationshipId}:${participantId}`;
+}
+
 export function parseParticipationEdgeId(
   edgeId: string,
-): { relationshipId: string; entityId: string } | null {
+): { relationshipId: string; participantId: string } | null {
   const parts = edgeId.split(":");
   if (parts.length !== 3 || parts[0] !== "part") return null;
-  return { relationshipId: parts[1]!, entityId: parts[2]! };
+  return { relationshipId: parts[1]!, participantId: parts[2]! };
 }
 
-/**
- * Aristas: participacion (relacion -> entidad, editable/eliminable) y
- * pertenencia de atributo (atributo -> dueno, fija).
- */
+export function parseHierarchyEdgeId(
+  edgeId: string,
+): { hierarchyId: string; role: "super" | "sub"; entityId: string } | null {
+  const parts = edgeId.split(":");
+  if (parts.length !== 3) return null;
+  if (parts[0] === "hsup") return { hierarchyId: parts[1]!, role: "super", entityId: parts[2]! };
+  if (parts[0] === "hsub") return { hierarchyId: parts[1]!, role: "sub", entityId: parts[2]! };
+  return null;
+}
+
+// --- aristas -------------------------------------------------------
+
 export function toFlowEdges(
   model: ConceptualModel,
   invalidIds: ReadonlySet<string>,
@@ -107,31 +151,75 @@ export function toFlowEdges(
   const edges: Edge[] = [];
 
   for (const relationship of model.relationships) {
-    for (const end of relationship.ends) {
+    for (const participant of relationship.participants) {
       edges.push({
-        id: participationEdgeId(relationship.id, end.entityId),
+        id: participationEdgeId(relationship.id, participant.id),
         source: relationship.id,
         sourceHandle: "bottom",
-        target: end.entityId,
+        target: participant.entityId,
         targetHandle: "top",
         type: "participation",
-        data: { cardinality: end.cardinality, participation: end.participation },
+        data: {
+          cardinality: participant.cardinality,
+          participation: participant.participation,
+          role: participant.role ?? null,
+          identifying: relationship.identifying === true,
+        },
         deletable: true,
         selectable: true,
       });
     }
-    for (const attribute of relationship.attributes) {
-      edges.push(ownershipEdge(attribute.id, relationship.id, invalidIds.has(attribute.id)));
-    }
+    pushOwnershipEdges(relationship.attributes, relationship.id, invalidIds, edges);
   }
 
   for (const entity of model.entities) {
-    for (const attribute of entity.attributes) {
-      edges.push(ownershipEdge(attribute.id, entity.id, invalidIds.has(attribute.id)));
+    pushOwnershipEdges(entity.attributes, entity.id, invalidIds, edges);
+  }
+
+  for (const hierarchy of model.hierarchies) {
+    if (hierarchy.superEntityId) {
+      edges.push({
+        id: `hsup:${hierarchy.id}:${hierarchy.superEntityId}`,
+        source: hierarchy.id,
+        sourceHandle: "top",
+        target: hierarchy.superEntityId,
+        targetHandle: "bottom",
+        type: "straight",
+        deletable: true,
+        selectable: true,
+        style: { stroke: CHEN_COLORS.edge, strokeWidth: 1.6 },
+      });
+    }
+    for (const subId of hierarchy.subEntityIds) {
+      edges.push({
+        id: `hsub:${hierarchy.id}:${subId}`,
+        source: hierarchy.id,
+        sourceHandle: "bottom",
+        target: subId,
+        targetHandle: "top",
+        type: "straight",
+        deletable: true,
+        selectable: true,
+        style: { stroke: CHEN_COLORS.edge, strokeWidth: 1.6 },
+      });
     }
   }
 
   return edges;
+}
+
+function pushOwnershipEdges(
+  attributes: ConceptualAttribute[],
+  ownerId: string,
+  invalidIds: ReadonlySet<string>,
+  edges: Edge[],
+): void {
+  for (const attribute of attributes) {
+    edges.push(ownershipEdge(attribute.id, ownerId, invalidIds.has(attribute.id)));
+    if (attribute.components) {
+      pushOwnershipEdges(attribute.components, attribute.id, invalidIds, edges);
+    }
+  }
 }
 
 function ownershipEdge(attributeId: string, ownerId: string, invalid: boolean): Edge {

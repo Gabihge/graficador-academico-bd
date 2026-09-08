@@ -3,14 +3,21 @@
 // (ConceptualModel + ViewLayout) y la fila persistida. Sin reglas de
 // producto: solo lectura y escritura.
 
-import type { ConceptualModel } from "@/domain/conceptual";
+import { migrateConceptualModel, type ConceptualModel } from "@/domain/conceptual";
 import type { ViewLayout } from "@/domain/view";
 import { db, type DerDocumentRecord } from "./db";
 
+/**
+ * Lee el contenido DER de un documento. El `model` se normaliza a la forma
+ * canonica actual (ver src/domain/conceptual/migrate): asi una fila guardada
+ * por un incremento anterior se puede abrir sin migracion de esquema Dexie.
+ */
 export async function loadDerDocument(
   documentId: string,
 ): Promise<DerDocumentRecord | undefined> {
-  return db.derDocuments.get(documentId);
+  const record = await db.derDocuments.get(documentId);
+  if (!record) return undefined;
+  return { ...record, model: migrateConceptualModel(record.model) };
 }
 
 export async function saveDerDocument(

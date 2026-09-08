@@ -1,26 +1,24 @@
 import { memo } from "react";
-import {
-  EdgeLabelRenderer,
-  getStraightPath,
-  type EdgeProps,
-} from "@xyflow/react";
+import { EdgeLabelRenderer, getStraightPath, type EdgeProps } from "@xyflow/react";
 import type { CardinalityBound, Participation } from "@/domain/conceptual";
 import { CHEN_COLORS } from "./shapes";
 
 export interface ParticipationEdgeData {
   cardinality: CardinalityBound;
   participation: Participation;
+  role: string | null;
+  identifying: boolean;
   [key: string]: unknown;
 }
 
 /**
- * Arista entidad-relacion en notacion Chen. Construida siempre como
- * relacion (source) -> entidad (target), asi la etiqueta de cardinalidad
- * queda del lado de la entidad.
+ * Arista relacion (source) -> entidad (target) en notacion Chen. La etiqueta,
+ * del lado de la entidad, muestra el rol (si hay), la cardinalidad y la
+ * participacion en texto (distinguible SIN color, .claude/rules/ui.md).
  *
- * Participacion (distinguible SIN color, .claude/rules/ui.md):
- * - total   -> linea doble (dos trazos paralelos)
- * - parcial -> linea simple
+ * Linea doble cuando:
+ * - la participacion es total; o
+ * - la relacion es identificadora (doble linea hacia la entidad debil, spec 6.3).
  */
 function ParticipationEdgeComponent({
   sourceX,
@@ -30,22 +28,24 @@ function ParticipationEdgeComponent({
   data,
   selected,
 }: EdgeProps) {
-  const { cardinality, participation } = (data ?? {
+  const { cardinality, participation, role, identifying } = (data ?? {
     cardinality: "N",
     participation: "partial",
+    role: null,
+    identifying: false,
   }) as ParticipationEdgeData;
 
   const [path] = getStraightPath({ sourceX, sourceY, targetX, targetY });
   const isTotal = participation === "total";
+  const doubleLine = isTotal || identifying;
   const color = selected ? CHEN_COLORS.selectedStroke : CHEN_COLORS.edge;
 
-  // Etiqueta cerca de la entidad (extremo target).
-  const labelX = sourceX + (targetX - sourceX) * 0.8;
-  const labelY = sourceY + (targetY - sourceY) * 0.8;
+  const labelX = sourceX + (targetX - sourceX) * 0.78;
+  const labelY = sourceY + (targetY - sourceY) * 0.78;
 
   return (
     <>
-      {isTotal ? (
+      {doubleLine ? (
         <>
           <path d={path} fill="none" stroke={color} strokeWidth={4} />
           <path d={path} fill="none" stroke={CHEN_COLORS.fill} strokeWidth={1.4} />
@@ -67,11 +67,28 @@ function ParticipationEdgeComponent({
             color: CHEN_COLORS.text,
             textAlign: "center",
             pointerEvents: "none",
+            maxWidth: 110,
           }}
           title={
-            isTotal ? "Participacion total (linea doble)" : "Participacion parcial (linea simple)"
+            (identifying ? "Relacion identificadora · " : "") +
+            (isTotal ? "participacion total" : "participacion parcial")
           }
         >
+          {role && (
+            <span
+              style={{
+                display: "block",
+                fontSize: 9,
+                fontStyle: "italic",
+                opacity: 0.75,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {role}
+            </span>
+          )}
           <span style={{ fontWeight: 700 }}>{cardinality}</span>
           <span style={{ display: "block", fontSize: 9, opacity: 0.7 }}>
             {isTotal ? "total" : "parcial"}
