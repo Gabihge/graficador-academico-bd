@@ -104,6 +104,24 @@ derivados) versionadas en `unlamTransformConventions` 1.0.0 y documentadas en
 Editor de relaciones/esquemas, atributos, PK/FK simples y compuestas,
 referencias. Misma fuente de verdad (`RelationalModel`) que el incremento 6.
 
+**Gate** (este documento no lo definia; se fija aca): se puede editar un MR
+grafico de punta a punta -- crear/renombrar/eliminar esquemas y atributos,
+marcar PK, crear FK simples y compuestas, reordenar atributos -- con
+persistencia y recuperacion tras recargar; y editar un MR **derivado** marca
+`derivation.hasManualChanges` (para que la regeneracion del Incremento 4
+avise). **CUMPLIDO** (2026-09-08): editor MR espejo del editor DER
+(`src/state/mrEditorStore` + `src/features/mr-editor`, React Flow con tablas y
+aristas FK dirigidas). Cubierto por
+`tests/integration/mr-editor-persistence.test.ts` (crea dos esquemas con PK,
+una FK compuesta y un layout; persiste y recupera; ademas verifica que editar
+un MR derivado marca `hasManualChanges`) y
+`tests/features/mr-validation.test.ts` (validacion estructural minima del MR,
+lista MR de spec 8; la referencia circular NO se marca). La tool rail se
+parametriza segun el editor activo (`DER_TOOLS` / `MR_TOOLS`); el Header se
+desacoplo (undo/redo/validar por props); las FK se crean arrastrando entre
+tablas y sus columnas se editan en el Inspector. `npm run check` (163 tests) y
+`npm run build` verdes.
+
 ## Incremento 6 - MR textual (DSL)
 
 CodeMirror 6 + parser (Lezer) para la DSL de `docs/MR_TEXT_DSL.md`. Sync

@@ -15,6 +15,15 @@ export type { AcademicIssue } from "@/academic";
 export { SEVERITY_LABELS } from "@/academic";
 export type Severity = AcademicIssue["severity"];
 
+// Validacion estructural minima del MR (Incremento 5).
+export {
+  validateMr,
+  isMrValid,
+  mrElementKindOf,
+  MR_SEVERITY_LABELS,
+  type MrIssue,
+} from "./mr-structural";
+
 /** Corre el perfil academico por defecto (UNLaM) sobre un DER. */
 export function validateDer(model: ConceptualModel): AcademicIssue[] {
   return runProfile(model, unlamProfile);

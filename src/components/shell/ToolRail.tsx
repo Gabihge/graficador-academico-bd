@@ -1,30 +1,19 @@
-import type { LucideIcon } from "lucide-react";
-import { Circle, Diamond, MousePointer2, Square, StickyNote, Triangle } from "lucide-react";
 import { Tooltip } from "@/components/ui/Tooltip";
+import type { ToolDef, ToolId } from "./tools";
 
-// Herramientas de la notacion Chen (spec 11.3). Desde el Incremento 3 dibujan
-// de verdad "select", "entity", "relationship", "attribute" y "hierarchy".
-// "note" sigue presente pero INERTE (las notas son del Incremento 8). Las
-// variantes (entidad debil, tipo de atributo, etc.) se eligen despues en el
-// Inspector, no con un boton por subtipo. Ver docs/DECISIONS.md.
-export type ToolId = "select" | "entity" | "relationship" | "attribute" | "hierarchy" | "note";
-
-const TOOLS: { id: ToolId; label: string; icon: LucideIcon }[] = [
-  { id: "select", label: "Seleccionar", icon: MousePointer2 },
-  { id: "entity", label: "Entidad", icon: Square },
-  { id: "relationship", label: "Relacion", icon: Diamond },
-  { id: "attribute", label: "Atributo", icon: Circle },
-  { id: "hierarchy", label: "Jerarquia", icon: Triangle },
-  { id: "note", label: "Nota", icon: StickyNote },
-];
+// Herramientas del canvas. El conjunto (`tools`) depende del editor activo:
+// AppShell pasa DER_TOOLS o MR_TOOLS (ver ./tools). Las variantes se eligen
+// despues en el Inspector, no con un boton por subtipo.
+export type { ToolId, ToolDef } from "./tools";
 
 interface ToolRailProps {
+  tools: ToolDef[];
   activeTool: ToolId;
   onToolChange: (tool: ToolId) => void;
   shiftedRight: boolean;
 }
 
-export function ToolRail({ activeTool, onToolChange, shiftedRight }: ToolRailProps) {
+export function ToolRail({ tools, activeTool, onToolChange, shiftedRight }: ToolRailProps) {
   return (
     <div
       className={`pointer-events-auto absolute top-1/2 z-20 flex -translate-y-1/2 flex-col gap-1 rounded-2xl border border-neutral-200/70 bg-white/75 p-1 shadow-sm backdrop-blur-md transition-[left] ${
@@ -34,7 +23,7 @@ export function ToolRail({ activeTool, onToolChange, shiftedRight }: ToolRailPro
       aria-label="Herramientas de dibujo"
       aria-orientation="vertical"
     >
-      {TOOLS.map((tool) => {
+      {tools.map((tool) => {
         const Icon = tool.icon;
         const isActive = tool.id === activeTool;
         return (

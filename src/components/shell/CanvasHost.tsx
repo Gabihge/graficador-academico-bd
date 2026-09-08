@@ -1,9 +1,8 @@
 import { Background, BackgroundVariant, Controls, ReactFlow } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useWorkspaceStore } from "@/state/workspaceStore";
-import { useMrStore } from "@/state/mrStore";
 import { DerCanvas } from "@/features/der-editor";
-import { MrReadonlyView } from "@/features/transformation";
+import { MrCanvas } from "@/features/mr-editor";
 import type { EditorMode } from "./Header";
 import type { ToolId } from "./ToolRail";
 
@@ -20,11 +19,9 @@ interface CanvasHostProps {
 }
 
 /**
- * Elige que mostrar en el area principal segun el documento activo y la vista:
- * - documento DER (o combinado) en vista DER -> editor Chen;
- * - documento MR (o combinado en vista MR) -> visor de MR de SOLO LECTURA
- *   (la edicion del MR grafico llega en el Incremento 5);
- * - sin documento -> lienzo vacio con pan/zoom.
+ * Elige que editor mostrar en el area principal segun el documento activo y la
+ * vista: documento DER (o combinado en vista DER) -> editor Chen; documento MR
+ * (o combinado en vista MR) -> editor MR grafico; sin documento -> lienzo vacio.
  */
 export function CanvasHost({ editorMode, activeTool, onToolConsumed }: CanvasHostProps) {
   const activeDocument = useWorkspaceStore((s) =>
@@ -34,7 +31,7 @@ export function CanvasHost({ editorMode, activeTool, onToolConsumed }: CanvasHos
   const showDerEditor =
     editorMode === "der" &&
     (activeDocument?.kind === "der" || activeDocument?.kind === "combined");
-  const showMrViewer =
+  const showMrEditor =
     !showDerEditor &&
     (activeDocument?.kind === "mr" ||
       (activeDocument?.kind === "combined" && editorMode === "mr"));
@@ -43,38 +40,11 @@ export function CanvasHost({ editorMode, activeTool, onToolConsumed }: CanvasHos
     <div className="absolute inset-0" data-testid="canvas-host">
       {showDerEditor ? (
         <DerCanvas activeTool={activeTool} onToolConsumed={onToolConsumed} />
-      ) : showMrViewer ? (
-        <MrViewerPane />
+      ) : showMrEditor ? (
+        <MrCanvas activeTool={activeTool} onToolConsumed={onToolConsumed} />
       ) : (
         <EmptyCanvas />
       )}
-    </div>
-  );
-}
-
-/** Panel de solo lectura con el MR derivado del documento activo. */
-function MrViewerPane() {
-  const status = useMrStore((s) => s.status);
-  const model = useMrStore((s) => s.model);
-  const trace = useMrStore((s) => s.trace);
-
-  return (
-    <div className="absolute inset-0 overflow-y-auto bg-neutral-50 px-6 pt-24 pb-10">
-      <div className="mx-auto max-w-2xl">
-        {status === "ready" ? (
-          <>
-            <p className="mb-3 text-xs text-neutral-400">
-              MR derivado (solo lectura). La edicion del MR grafico llega en el proximo incremento.
-            </p>
-            <MrReadonlyView model={model} trace={trace} />
-          </>
-        ) : (
-          <p className="rounded-lg border border-dashed border-neutral-200 bg-white/70 px-4 py-6 text-center text-xs text-neutral-400">
-            Este documento MR todavia no tiene contenido. Genera el MR desde un documento DER con el
-            boton "Transformar".
-          </p>
-        )}
-      </div>
     </div>
   );
 }

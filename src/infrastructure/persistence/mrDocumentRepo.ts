@@ -1,28 +1,53 @@
 // Repositorio del contenido semantico de un documento MR: unica puerta de
-// entrada a la tabla `mrDocuments` de Dexie. En el Incremento 4 el MR solo se
-// produce por transformacion automatica y es de solo lectura.
+// entrada a la tabla `mrDocuments` de Dexie. Desde el Incremento 5 el MR es
+// editable (`mrEditorStore`); un MR derivado ademas guarda su `derivation` y
+// su `trace`.
 
-import type { RelationalModel } from "@/domain/relational";
+import { createRelationalModel, type RelationalModel } from "@/domain/relational";
 import type { MrDerivation, TransformationTrace } from "@/domain/transformation";
+import { createViewLayout, type ViewLayout } from "@/domain/view";
 import { db, type MrDocumentRecord } from "./db";
+
+/** Fila de MR ya normalizada: `layout` garantizado (las filas del Inc. 4 no lo tenian). */
+export interface LoadedMrDocument {
+  documentId: string;
+  model: RelationalModel;
+  layout: ViewLayout;
+  derivation?: MrDerivation;
+  trace?: TransformationTrace;
+  updatedAt: string;
+}
 
 export async function loadMrDocument(
   documentId: string,
-): Promise<MrDocumentRecord | undefined> {
-  return db.mrDocuments.get(documentId);
+): Promise<LoadedMrDocument | undefined> {
+  const record = await db.mrDocuments.get(documentId);
+  if (!record) return undefined;
+  return {
+    documentId: record.documentId,
+    model: record.model ?? createRelationalModel(),
+    layout: record.layout ?? createViewLayout(),
+    derivation: record.derivation,
+    trace: record.trace,
+    updatedAt: record.updatedAt,
+  };
 }
 
-export async function saveMrDocument(
-  documentId: string,
-  model: RelationalModel,
-  derivation?: MrDerivation,
-  trace?: TransformationTrace,
-): Promise<void> {
+export interface SaveMrDocumentInput {
+  documentId: string;
+  model: RelationalModel;
+  layout: ViewLayout;
+  derivation?: MrDerivation;
+  trace?: TransformationTrace;
+}
+
+export async function saveMrDocument(input: SaveMrDocumentInput): Promise<void> {
   const record: MrDocumentRecord = {
-    documentId,
-    model,
-    derivation,
-    trace,
+    documentId: input.documentId,
+    model: input.model,
+    layout: input.layout,
+    derivation: input.derivation,
+    trace: input.trace,
     updatedAt: new Date().toISOString(),
   };
   await db.mrDocuments.put(record);

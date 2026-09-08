@@ -6,15 +6,15 @@
 // Regeneracion segura (spec 10): nunca sobrescribe en silencio. El llamador
 // (AppShell) decide el modo tras consultar `findDerivedMrFor`.
 
-import { unlamProfile } from "@/academic";
-import { unlamTransformConventions } from "@/academic";
+import { unlamProfile, unlamTransformConventions } from "@/academic";
 import type { RelationalModel } from "@/domain/relational";
 import type { MrDerivation, TransformationTrace } from "@/domain/transformation";
 import { transformDerToMr } from "@/features/transformation";
+import { autoLayoutSchemas } from "@/features/mr-editor/autoLayout";
 import * as mrRepo from "@/infrastructure/persistence/mrDocumentRepo";
 import { useDerEditorStore } from "./derEditorStore";
 import { useWorkspaceStore } from "./workspaceStore";
-import { useMrStore } from "./mrStore";
+import { useMrEditorStore } from "./mrEditorStore";
 
 export type TransformMode =
   | { kind: "new" }
@@ -31,7 +31,8 @@ export interface TransformationOutcome {
 /**
  * Corre la transformacion del DER activo y persiste el MR:
  * - `new`: crea un documento `mr` nuevo en la misma carpeta que el DER;
- * - `replace`: sobrescribe el MR derivado indicado (sube `generatedFromRevision`).
+ * - `replace`: sobrescribe el MR derivado indicado (sube `generatedFromRevision`
+ *   y limpia `hasManualChanges`: el modelo queda 100% derivado otra vez).
  */
 export async function runTransformation(
   sourceDocumentId: string,
@@ -50,6 +51,7 @@ export async function runTransformation(
     sourceDocumentId,
     sourceRevision: der.model.revision,
   });
+  const layout = autoLayoutSchemas(relational);
 
   if (mode.kind === "new") {
     const created = await workspace.createDocument(
@@ -57,30 +59,25 @@ export async function runTransformation(
       `${sourceDoc.name} - MR`,
       "mr",
     );
-    await mrRepo.saveMrDocument(created.id, relational, derivation, trace);
+    await mrRepo.saveMrDocument({ documentId: created.id, model: relational, layout, derivation, trace });
     // `createDocument` deja el nuevo documento activo; volvemos al DER de
     // origen para no interrumpir el trabajo (el MR queda en el arbol y se
-    // muestra en el modal). Asi tambien la regeneracion (spec 10) es
-    // alcanzable de inmediato desde el mismo DER.
+    // muestra en el modal). Asi la regeneracion (spec 10) es alcanzable de
+    // inmediato desde el mismo DER.
     await workspace.setActiveDocument(sourceDocumentId);
-    return {
-      documentId: created.id,
-      documentName: created.name,
-      relational,
-      trace,
-      derivation,
-    };
+    return { documentId: created.id, documentName: created.name, relational, trace, derivation };
   }
 
   // replace
-  const existing = await mrRepo.loadMrDocument(mode.targetDocumentId);
-  const merged: MrDerivation = {
-    ...derivation,
-    hasManualChanges: existing?.derivation?.hasManualChanges ?? false,
-  };
-  await mrRepo.saveMrDocument(mode.targetDocumentId, relational, merged, trace);
-  if (useMrStore.getState().documentId === mode.targetDocumentId) {
-    await useMrStore.getState().load(mode.targetDocumentId);
+  await mrRepo.saveMrDocument({
+    documentId: mode.targetDocumentId,
+    model: relational,
+    layout,
+    derivation,
+    trace,
+  });
+  if (useMrEditorStore.getState().documentId === mode.targetDocumentId) {
+    await useMrEditorStore.getState().load(mode.targetDocumentId);
   }
   const targetDoc = workspace.documents.find((doc) => doc.id === mode.targetDocumentId);
   return {
@@ -88,7 +85,7 @@ export async function runTransformation(
     documentName: targetDoc?.name ?? "MR derivado",
     relational,
     trace,
-    derivation: merged,
+    derivation,
   };
 }
 

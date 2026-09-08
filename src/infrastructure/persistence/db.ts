@@ -47,6 +47,8 @@ export interface DerDocumentRecord {
 export interface MrDocumentRecord {
   documentId: string;
   model: RelationalModel;
+  /** Layout del MR grafico (spec 15.3). Opcional: las filas del Incremento 4 no lo tenian. */
+  layout?: ViewLayout;
   derivation?: MrDerivation;
   trace?: TransformationTrace;
   /** ISO-8601. */

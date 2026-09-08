@@ -8,7 +8,7 @@ import type {
 import { expectedParticipantCount, findAttribute } from "@/domain/conceptual";
 import { useDerEditorStore, type DerSelection } from "@/state/derEditorStore";
 import { secondaryButton, textInput } from "@/components/ui/buttonStyles";
-import { InlineTextField } from "./InlineTextField";
+import { InlineTextField } from "@/components/ui/InlineTextField";
 import { AttributeList } from "./AttributeList";
 import { HierarchyPanel } from "./HierarchyPanel";
 

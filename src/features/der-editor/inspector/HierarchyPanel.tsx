@@ -7,7 +7,7 @@ import {
 } from "@/domain/conceptual";
 import { useDerEditorStore } from "@/state/derEditorStore";
 import { secondaryButton, textInput } from "@/components/ui/buttonStyles";
-import { InlineTextField } from "./InlineTextField";
+import { InlineTextField } from "@/components/ui/InlineTextField";
 
 /** Panel del Inspector para una jerarquia de generalizacion/especializacion. */
 export function HierarchyPanel({

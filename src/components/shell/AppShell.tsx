@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useWorkspaceStore } from "@/state/workspaceStore";
 import { useDerEditorStore } from "@/state/derEditorStore";
-import { useMrStore } from "@/state/mrStore";
+import { useMrEditorStore } from "@/state/mrEditorStore";
 import {
   findExistingDerivedMr,
   runTransformation,
@@ -13,7 +13,8 @@ import { WorkspaceLanding } from "@/features/workspace/WorkspaceLanding";
 import { Explorer } from "@/features/workspace/Explorer";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { Header, type EditorMode } from "./Header";
-import { ToolRail, type ToolId } from "./ToolRail";
+import { ToolRail } from "./ToolRail";
+import { DER_TOOLS, MR_TOOLS, type ToolId } from "./tools";
 import { Inspector, type InspectorTab } from "./Inspector";
 import { CanvasHost } from "./CanvasHost";
 import { AboutDialog } from "./AboutDialog";
@@ -44,11 +45,12 @@ interface RegenState {
   hasManualChanges: boolean;
 }
 
+type ActiveEditor = "der" | "mr" | null;
+
 /**
- * Layout de trabajo: canvas a pantalla completa con el shell flotante
- * encima (header, tool rail, explorer, inspector). Todo el estado de esta
- * funcion es efimero de UI (paneles, herramienta, vista) y vive en React
- * local, no en el store de dominio.
+ * Layout de trabajo: canvas a pantalla completa con el shell flotante encima.
+ * Todo el estado de esta funcion es efimero de UI (paneles, herramienta,
+ * vista) y vive en React local, no en el store de dominio.
  */
 function WorkspaceShell() {
   const [explorerOpen, setExplorerOpen] = useState(true);
@@ -63,34 +65,60 @@ function WorkspaceShell() {
   const activeDocument = useWorkspaceStore((s) =>
     s.documents.find((doc) => doc.id === s.activeDocumentId),
   );
+
   const loadDer = useDerEditorStore((s) => s.load);
   const clearDer = useDerEditorStore((s) => s.clear);
-  const undo = useDerEditorStore((s) => s.undo);
-  const redo = useDerEditorStore((s) => s.redo);
   const derModel = useDerEditorStore((s) => s.model);
-  const loadMr = useMrStore((s) => s.load);
-  const clearMr = useMrStore((s) => s.clear);
+  const derUndo = useDerEditorStore((s) => s.undo);
+  const derRedo = useDerEditorStore((s) => s.redo);
+  const derCanUndo = useDerEditorStore((s) => s.past.length > 0);
+  const derCanRedo = useDerEditorStore((s) => s.future.length > 0);
+
+  const loadMr = useMrEditorStore((s) => s.load);
+  const clearMr = useMrEditorStore((s) => s.clear);
+  const mrUndo = useMrEditorStore((s) => s.undo);
+  const mrRedo = useMrEditorStore((s) => s.redo);
+  const mrCanUndo = useMrEditorStore((s) => s.past.length > 0);
+  const mrCanRedo = useMrEditorStore((s) => s.future.length > 0);
 
   const isDerDocument =
     activeDocument?.kind === "der" || activeDocument?.kind === "combined";
   const isMrDocument =
     activeDocument?.kind === "mr" || activeDocument?.kind === "combined";
 
-  // Sincroniza el editor DER con el documento activo.
+  const activeEditor: ActiveEditor = !activeDocument
+    ? null
+    : activeDocument.kind === "der"
+      ? "der"
+      : activeDocument.kind === "mr"
+        ? "mr"
+        : editorMode; // combinado: sigue la vista DER/MR
+
+  // Sincroniza cada editor con el documento activo.
   useEffect(() => {
     if (activeDocument && isDerDocument) void loadDer(activeDocument.id);
     else clearDer();
   }, [activeDocument, isDerDocument, loadDer, clearDer]);
 
-  // Sincroniza el visor de MR (solo lectura) con el documento activo.
   useEffect(() => {
     if (activeDocument && isMrDocument) void loadMr(activeDocument.id);
     else clearMr();
   }, [activeDocument, isMrDocument, loadMr, clearMr]);
 
-  // Atajos de undo/redo del editor DER.
+  const tools = activeEditor === "mr" ? MR_TOOLS : DER_TOOLS;
+  // Si la herramienta activa no pertenece al editor actual (p. ej. quedo
+  // "schema" al pasar a un DER), se comporta como "select" hasta que el
+  // usuario elija otra.
+  const effectiveTool: ToolId = tools.some((t) => t.id === activeTool) ? activeTool : "select";
+
+  const undo = activeEditor === "mr" ? mrUndo : derUndo;
+  const redo = activeEditor === "mr" ? mrRedo : derRedo;
+  const canUndo = activeEditor === "mr" ? mrCanUndo : activeEditor === "der" ? derCanUndo : false;
+  const canRedo = activeEditor === "mr" ? mrCanRedo : activeEditor === "der" ? derCanRedo : false;
+
+  // Atajos de undo/redo del editor activo.
   useEffect(() => {
-    if (!isDerDocument) return;
+    if (!activeEditor) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey)) return;
       const key = event.key.toLowerCase();
@@ -104,16 +132,21 @@ function WorkspaceShell() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isDerDocument, undo, redo]);
+  }, [activeEditor, undo, redo]);
 
-  // El Inspector aparece al seleccionar un elemento del canvas (spec 11.5).
-  useEffect(
-    () =>
-      useDerEditorStore.subscribe((state, prev) => {
-        if (state.selection && !prev.selection) setInspectorOpen(true);
-      }),
-    [],
-  );
+  // El Inspector aparece al seleccionar un elemento en cualquiera de los dos
+  // editores (spec 11.5). Suscripcion al store externo, no un setState sincrono.
+  useEffect(() => {
+    const open = (state: { selection: unknown }, prev: { selection: unknown }) => {
+      if (state.selection && !prev.selection) setInspectorOpen(true);
+    };
+    const offDer = useDerEditorStore.subscribe(open);
+    const offMr = useMrEditorStore.subscribe(open);
+    return () => {
+      offDer();
+      offMr();
+    };
+  }, []);
 
   const handleValidate = useCallback(() => {
     setInspectorOpen(true);
@@ -121,7 +154,7 @@ function WorkspaceShell() {
   }, []);
 
   const canTransform =
-    Boolean(isDerDocument) && derModel.entities.length > 0 && isDerValid(derModel);
+    activeEditor === "der" && derModel.entities.length > 0 && isDerValid(derModel);
 
   const transform = useCallback(
     async (sourceDocumentId: string, mode: Parameters<typeof runTransformation>[1]) => {
@@ -157,7 +190,7 @@ function WorkspaceShell() {
       <div className="relative h-screen w-screen overflow-hidden bg-neutral-50 text-neutral-800">
         <CanvasHost
           editorMode={editorMode}
-          activeTool={activeTool}
+          activeTool={effectiveTool}
           onToolConsumed={() => setActiveTool("select")}
         />
 
@@ -170,14 +203,19 @@ function WorkspaceShell() {
             onToggleExplorer={() => setExplorerOpen((open) => !open)}
             inspectorOpen={inspectorOpen}
             onToggleInspector={() => setInspectorOpen((open) => !open)}
-            derEditorActive={Boolean(isDerDocument)}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onUndo={undo}
+            onRedo={redo}
+            canValidate={activeEditor !== null}
             onValidate={handleValidate}
             canTransform={canTransform}
             onTransform={() => void handleTransform()}
             onAbout={() => setAboutOpen(true)}
           />
           <ToolRail
-            activeTool={activeTool}
+            tools={tools}
+            activeTool={effectiveTool}
             onToolChange={setActiveTool}
             shiftedRight={explorerOpen}
           />
@@ -186,7 +224,7 @@ function WorkspaceShell() {
             <Inspector
               tab={inspectorTab}
               onTabChange={setInspectorTab}
-              derEditorActive={Boolean(isDerDocument)}
+              editor={activeEditor}
               onCollapse={() => setInspectorOpen(false)}
             />
           )}

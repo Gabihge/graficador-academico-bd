@@ -288,3 +288,59 @@ decision, no reescribir las anteriores.
 - DSL textual del MR y su round-trip (items 26-27 de spec 26): Incremento 6.
 - `duplicateDocument` / `duplicateProject` / `cloneProject` siguen sin copiar
   contenido DER **ni MR** (arrastrado de incrementos previos).
+
+## 2026-09-08 - MR grafico (Incremento 5)
+
+- **Gate fijado**: `docs/INCREMENTOS.md` no definia un gate para este
+  incremento. Se fijo: "editar un MR grafico de punta a punta (esquemas,
+  atributos, PK, FK simples y compuestas, reordenar) con persistencia y
+  recuperacion; editar un MR derivado marca `hasManualChanges`". Analogo al
+  gate del Incremento 2 para DER. Documentado tambien en INCREMENTOS.md.
+- **Editor MR = espejo del editor DER**: `src/state/mrEditorStore.ts` (modelo +
+  layout + seleccion + undo/redo en memoria + persistencia con debounce, mismo
+  `commit`/`schedulePersist` que `derEditorStore`) reemplaza al `mrStore.ts` de
+  solo lectura del Incremento 4. `src/features/mr-editor/` (React Flow con un
+  nodo `schema` por relacion y una arista `fk` dirigida por FK).
+- **`RelationalModel` sin cambios de forma**: se agregaron solo operaciones
+  puras (`src/domain/relational/operations.ts`), no campos nuevos.
+- **`ViewLayout` propio del MR** (spec 15.3): `MrDocumentRecord` gana `layout`
+  (opcional; `loadMrDocument` lo completa con `createViewLayout()` para las
+  filas del Incremento 4). Sin bump de version Dexie (solo cambia la forma del
+  valor). Los layouts separados por notacion del DER (Chen / Crow's Foot)
+  siguen pendientes (Incremento 10).
+- **`hasManualChanges`** pasa a `true` en cualquier mutacion ESTRUCTURAL de un
+  MR con `derivation` (no al mover una tabla). Es *sticky*: un undo no lo
+  revierte (el usuario ya interactuo). Se persiste junto al modelo. Cierra el
+  gancho que el Incremento 4 dejo abierto.
+- **Regeneracion "reemplazar" limpia `hasManualChanges`**: al reemplazar, el MR
+  queda 100% derivado otra vez, asi que `runTransformation` guarda una
+  `derivation` fresca (`hasManualChanges: false`).
+- **Validacion estructural minima del MR** (`validateMr` en
+  `src/features/validation/mr-structural.ts`): integridad del modelo (lista MR
+  de spec 8), NO convenciones de catedra. La referencia circular NO se marca
+  (spec 8 la admite). Un `RuleProfile` academico del MR queda pendiente.
+- **FK por arrastre**: se crean arrastrando de una tabla a otra en el canvas
+  (como `connect` en el DER); las columnas locales/destino y el esquema
+  destino se editan en el Inspector (`ForeignKeyProperties`). `addForeignKey`
+  deja por defecto columnas = PK del destino.
+- **`addAttributeTo` del MR no roba la seleccion** (a diferencia del DER):
+  el usuario suele estar en el panel del esquema agregando varios atributos y
+  marcando PK en la lista.
+- **`autoLayoutSchemas`**: un MR recien derivado (que no trae layout) se
+  persiste con un layout de grilla determinista para que abra prolijo.
+- **`ToolRail` parametrizada**: recibe `tools` (`DER_TOOLS` / `MR_TOOLS` en
+  `src/components/shell/tools.ts`) segun el editor activo. Para el MR: solo
+  "Seleccionar" y "Esquema".
+- **`Header` desacoplado**: undo/redo/validar dejan de leer `derEditorStore`;
+  `AppShell` calcula `canUndo/canRedo/onUndo/onRedo/canValidate` del editor
+  activo y los pasa por props. `InlineTextField` se movio a
+  `src/components/ui/` para reutilizarlo en ambos editores sin acoplar features.
+
+### Pendientes detectados (revisar en incrementos futuros, NO se tocan ahora)
+
+- UI de **notas** del MR: el campo `RelationalModel.notes` persiste pero no hay
+  editor todavia (spec 4.4 lo lista; probablemente Incremento 8).
+- `RuleProfile` academico del MR (convenciones de catedra sobre el modelo
+  relacional), mas alla de la integridad estructural.
+- Sincronizacion MR grafico <-> textual: Incremento 6.
+- `duplicate*` sigue sin copiar contenido DER/MR.
